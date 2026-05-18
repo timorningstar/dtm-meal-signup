@@ -108,6 +108,5 @@ GitHub mirror can run without Cloud Functions on GitHub.
 
 ## Next build step
 
-Extract the meal-only React components and Cloud Function routes from the
-current shared Firebase app so future meal signup changes can deploy without the
-DriveWise code.
+Trim the remaining shared Cloud Function routes so future meal signup backend
+changes can deploy without DriveWise routes in the same function file.
