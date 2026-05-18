@@ -11,7 +11,7 @@
   "functions": [
     {
       "source": "functions",
-      "codebase": "mealSignup",
+      "codebase": "meal-signup",
       "disallowLegacyRuntimeConfig": true,
       "ignore": [
         "node_modules",
