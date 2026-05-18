@@ -13,7 +13,7 @@ setGlobalOptions({maxInstances: 10});
 const db = admin.firestore();
 const storage = admin.storage();
 const storageBucketName = process.env.STORAGE_BUCKET || "dtmcleaners.appspot.com";
-const SUPPORTED_APP_IDS = new Set(["current", "ticketScanning", "gideonBooth", "mealSignup", "drivewise"]);
+const SUPPORTED_APP_IDS = new Set(["mealSignup"]);
 const passwordResetCollection = db.collection("passwordResets");
 const changeLinkCollection = db.collection("changeLinks");
 const adminSessionCollection = db.collection("adminSessions");
@@ -123,7 +123,6 @@ function defaultState(appId = "current") {
   const ticketScanning = appId === "ticketScanning";
   const gideonBooth = appId === "gideonBooth";
   const mealSignup = appId === "mealSignup";
-  const drivewise = appId === "drivewise";
   return {
     volunteers: [],
     signups: [],
@@ -134,8 +133,6 @@ function defaultState(appId = "current") {
     capacityOverrides: {},
     schedule: gideonBooth ? defaultGideonBoothSchedule() : ticketScanning ? defaultTicketScanningSchedule() : null,
     locations: mealSignup ? defaultMealLocations() : [],
-    repairs: drivewise ? [] : [],
-    paymentBatches: drivewise ? [] : [],
     changeContact: DEFAULT_CHANGE_CONTACT,
     adminLog: [],
     adminCredentials: {
@@ -168,7 +165,6 @@ function defaultTitleFor(appId = "current") {
   if (appId === "gideonBooth") return "Elkhart County Fair Gideon Booth";
   if (appId === "ticketScanning") return "Elkhart County Fair Ticket Scanning";
   if (appId === "mealSignup") return "Downtown Ministries Meal Signup";
-  if (appId === "drivewise") return "Downtown Ministries DriveWise";
   return "Elkhart County Fair Restroom Cleaning";
 }
 
@@ -331,8 +327,6 @@ function normalizeState(input, appId = "current") {
     },
     capacityOverrides: source.capacityOverrides || {},
     locations: Array.isArray(source.locations) && source.locations.length ? sanitizeMealLocations(source.locations) : defaultState(appId).locations,
-    repairs: Array.isArray(source.repairs) ? source.repairs : [],
-    paymentBatches: Array.isArray(source.paymentBatches) ? source.paymentBatches : [],
     adminLog: Array.isArray(source.adminLog) ? source.adminLog : [],
     adminCredentials: normalizeCredentialRecord(source.adminCredentials || defaultState(appId).adminCredentials),
     recoveryAdminCredentials: normalizeCredentialRecord(source.recoveryAdminCredentials || defaultState(appId).recoveryAdminCredentials),
@@ -763,7 +757,7 @@ function isMissingBucketError(error) {
 }
 
 async function adminLogin(request, appId = "mealSignup") {
-  const adminAppId = ["mealSignup", "drivewise"].includes(appId) ? appId : "mealSignup";
+  const adminAppId = appId === "mealSignup" ? appId : "mealSignup";
   const username = clean(request.body?.username);
   const password = clean(request.body?.password);
   if (!username || !password) return {ok: false, error: "Enter an admin login and password."};
@@ -841,7 +835,7 @@ async function requireAdmin(request, requestedAppId, allowedRoles) {
   }
   const session = sessionDoc.data();
   const appId = SUPPORTED_APP_IDS.has(session.appId) ? session.appId : requestedAppId;
-  if (!["mealSignup", "drivewise"].includes(appId)) {
+  if (appId !== "mealSignup") {
     const error = new Error("This admin screen is not available for that app.");
     error.statusCode = 403;
     throw error;
@@ -1063,158 +1057,6 @@ function slugify(value) {
     .replace(/^-+|-+$/g, "");
 }
 
-async function drivewiseState(session) {
-  const state = await readState("drivewise");
-  return {
-    ok: true,
-    role: session.role,
-    username: session.username,
-    title: state.title || defaultTitleFor("drivewise"),
-    repairs: state.repairs || [],
-    paymentBatches: state.paymentBatches || [],
-    adminLog: state.adminLog || [],
-  };
-}
-
-async function saveDrivewiseRepair(request, session) {
-  const state = await readState("drivewise");
-  const repair = sanitizeDrivewiseRepair(request.body?.repair || {});
-  if (!repair.ownerName || !repair.vehicleInfo) {
-    return {ok: false, error: "Owner name and vehicle information are required."};
-  }
-
-  const existingIndex = (state.repairs || []).findIndex((item) => item.id === repair.id);
-  if (existingIndex >= 0) {
-    state.repairs[existingIndex] = {
-      ...state.repairs[existingIndex],
-      ...repair,
-      updatedAt: new Date().toISOString(),
-    };
-  } else {
-    state.repairs = [
-      repair,
-      ...(state.repairs || []),
-    ];
-  }
-
-  logStateChange(state, session.username, existingIndex >= 0 ? "Update DriveWise repair" : "Add DriveWise repair", `${session.username} saved repair record for ${repair.ownerName}.`);
-  await writeState(state, "drivewise");
-  return drivewiseState(session);
-}
-
-function sanitizeDrivewiseRepair(input) {
-  const invoices = Array.isArray(input.invoices) ? input.invoices : [];
-  return {
-    id: clean(input.id) || globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    createdAt: clean(input.createdAt) || new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    repairDate: clean(input.repairDate),
-    ownerName: clean(input.ownerName),
-    vehicleInfo: clean(input.vehicleInfo),
-    neededRepairs: clean(input.neededRepairs),
-    status: clean(input.status) || "Open",
-    notes: clean(input.notes),
-    invoices: invoices.map((invoice) => ({
-      id: clean(invoice.id) || globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      vendor: clean(invoice.vendor),
-      invoiceNumber: clean(invoice.invoiceNumber),
-      partDescription: clean(invoice.partDescription),
-      cost: Math.max(0, Number.parseFloat(invoice.cost) || 0),
-      statementChecked: Boolean(invoice.statementChecked),
-      paid: Boolean(invoice.paid),
-      paidAt: clean(invoice.paidAt),
-      paymentBatchId: clean(invoice.paymentBatchId),
-    })),
-  };
-}
-
-async function deleteDrivewiseRepair(request, session) {
-  const repairId = clean(request.body?.id);
-  const state = await readState("drivewise");
-  const repair = (state.repairs || []).find((item) => item.id === repairId);
-  if (!repair) return {ok: false, error: "Repair record was not found."};
-  state.repairs = state.repairs.filter((item) => item.id !== repairId);
-  logStateChange(state, session.username, "Delete DriveWise repair", `${session.username} deleted repair record for ${repair.ownerName}.`);
-  await writeState(state, "drivewise");
-  return drivewiseState(session);
-}
-
-async function updateDrivewiseInvoiceStatus(request, session) {
-  const {repairId, invoiceId} = request.body || {};
-  const updates = request.body?.updates || {};
-  const state = await readState("drivewise");
-  let changed = false;
-  state.repairs = (state.repairs || []).map((repair) => {
-    if (repair.id !== repairId) return repair;
-    return {
-      ...repair,
-      invoices: (repair.invoices || []).map((invoice) => {
-        if (invoice.id !== invoiceId) return invoice;
-        changed = true;
-        return {
-          ...invoice,
-          statementChecked: updates.statementChecked === undefined ? invoice.statementChecked : Boolean(updates.statementChecked),
-          paid: updates.paid === undefined ? invoice.paid : Boolean(updates.paid),
-          paidAt: updates.paid ? new Date().toISOString() : clean(updates.paidAt || invoice.paidAt),
-        };
-      }),
-    };
-  });
-  if (!changed) return {ok: false, error: "Invoice was not found."};
-  logStateChange(state, session.username, "Update DriveWise invoice", `${session.username} updated invoice status.`);
-  await writeState(state, "drivewise");
-  return drivewiseState(session);
-}
-
-async function createDrivewisePaymentBatch(request, session) {
-  const vendor = clean(request.body?.vendor);
-  if (!vendor) return {ok: false, error: "Choose a vendor to create a payment batch."};
-  const state = await readState("drivewise");
-  const batchId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const invoices = [];
-  let total = 0;
-
-  state.repairs = (state.repairs || []).map((repair) => ({
-    ...repair,
-    invoices: (repair.invoices || []).map((invoice) => {
-      if (normalizeEmail(invoice.vendor) !== normalizeEmail(vendor) || invoice.paid) return invoice;
-      const next = {
-        ...invoice,
-        paid: true,
-        paidAt: new Date().toISOString(),
-        paymentBatchId: batchId,
-      };
-      total += next.cost || 0;
-      invoices.push({
-        repairId: repair.id,
-        ownerName: repair.ownerName,
-        vehicleInfo: repair.vehicleInfo,
-        invoiceId: invoice.id,
-        invoiceNumber: invoice.invoiceNumber,
-        partDescription: invoice.partDescription,
-        cost: invoice.cost,
-      });
-      return next;
-    }),
-  }));
-
-  if (!invoices.length) return {ok: false, error: "No unpaid invoices were found for that vendor."};
-  state.paymentBatches = [
-    {
-      id: batchId,
-      vendor,
-      createdAt: new Date().toISOString(),
-      createdBy: session.username,
-      total,
-      invoices,
-    },
-    ...(state.paymentBatches || []),
-  ];
-  logStateChange(state, session.username, "Create DriveWise payment batch", `${session.username} marked ${invoices.length} ${vendor} invoice(s) paid.`);
-  await writeState(state, "drivewise");
-  return drivewiseState(session);
-}
-
 function normalizeReceipt(receipt, index) {
   const amount = Number.parseFloat(receipt?.amount);
   const contentType = clean(receipt?.contentType);
@@ -1379,40 +1221,6 @@ exports.api = onRequest({cors: true, invoker: "public", secrets: providerSecrets
     if (request.method === "POST" && path === "/admin-delete-regular-admin") {
       const session = await requireAdmin(request, appId, ["full"]);
       const result = await deleteRegularAdmin(request, session);
-      sendJson(response, result.ok ? 200 : 400, result);
-      return;
-    }
-
-    if (request.method === "GET" && path === "/drivewise-state") {
-      const session = await requireAdmin(request, "drivewise", ["full", "schedule", "accounting"]);
-      sendJson(response, 200, await drivewiseState(session));
-      return;
-    }
-
-    if (request.method === "POST" && path === "/drivewise-repair") {
-      const session = await requireAdmin(request, "drivewise", ["full", "schedule"]);
-      const result = await saveDrivewiseRepair(request, session);
-      sendJson(response, result.ok ? 200 : 400, result);
-      return;
-    }
-
-    if (request.method === "POST" && path === "/drivewise-delete-repair") {
-      const session = await requireAdmin(request, "drivewise", ["full", "schedule"]);
-      const result = await deleteDrivewiseRepair(request, session);
-      sendJson(response, result.ok ? 200 : 400, result);
-      return;
-    }
-
-    if (request.method === "POST" && path === "/drivewise-invoice-status") {
-      const session = await requireAdmin(request, "drivewise", ["full", "accounting"]);
-      const result = await updateDrivewiseInvoiceStatus(request, session);
-      sendJson(response, result.ok ? 200 : 400, result);
-      return;
-    }
-
-    if (request.method === "POST" && path === "/drivewise-payment-batch") {
-      const session = await requireAdmin(request, "drivewise", ["full", "accounting"]);
-      const result = await createDrivewisePaymentBatch(request, session);
       sendJson(response, result.ok ? 200 : 400, result);
       return;
     }

@@ -93,6 +93,11 @@ Deploy:
 npm run firebase:deploy
 ```
 
+Important: the source is now meal-only, but the current live Firebase project
+still has DriveWise using the original shared `api` function until DriveWise gets
+its own function/rewrite. Do not deploy this repo's functions to Firebase until
+that DriveWise backend split is complete.
+
 ## GitHub
 
 The repository is prepared for `timorningstar/dtm-meal-signup`.
@@ -108,5 +113,5 @@ GitHub mirror can run without Cloud Functions on GitHub.
 
 ## Next build step
 
-Trim the remaining shared Cloud Function routes so future meal signup backend
-changes can deploy without DriveWise routes in the same function file.
+Remove the remaining legacy fair-volunteer helper code once the meal signup
+function no longer shares any history with the older volunteer apps.
