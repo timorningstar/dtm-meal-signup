@@ -93,10 +93,8 @@ Deploy:
 npm run firebase:deploy
 ```
 
-Important: the source is now meal-only, but the current live Firebase project
-still has DriveWise using the original shared `api` function until DriveWise gets
-its own function/rewrite. Do not deploy this repo's functions to Firebase until
-that DriveWise backend split is complete.
+This app now deploys its own Firebase Functions codebase and Hosting rewrite,
+separate from DriveWise.
 
 ## GitHub
 

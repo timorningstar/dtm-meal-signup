@@ -1146,7 +1146,7 @@ function routePath(request) {
   return path.replace(/^\/api/, "") || "/";
 }
 
-exports.api = onRequest({cors: true, invoker: "public", secrets: providerSecrets}, async (request, response) => {
+exports.mealApi = onRequest({cors: true, invoker: "public", secrets: providerSecrets}, async (request, response) => {
   try {
     const path = routePath(request);
     const appId = appIdFromRequest(request);
@@ -1466,7 +1466,7 @@ async function resetLiveData(request, appId = "current") {
   return {ok: true};
 }
 
-exports.sendQueuedMessages = onSchedule({schedule: "every 5 minutes", secrets: providerSecrets}, async () => {
+exports.mealSendQueuedMessages = onSchedule({schedule: "every 5 minutes", secrets: providerSecrets}, async () => {
   const result = await sendDueMessagesForAllApps();
   logger.info("Queued message sender finished", result);
 });
