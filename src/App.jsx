@@ -108,7 +108,8 @@ function MealSignupApp() {
     fullName: '',
     phone: '',
     email: '',
-    address: '',
+    addressLine1: '',
+    addressLine2: '',
     churchGroup: '',
     meal: '',
     notes: '',
@@ -346,6 +347,7 @@ function MealSignupApp() {
               <input
                 name="phone"
                 onChange={updateForm}
+                placeholder="xxx-xxx-xxxx"
                 required
                 type="tel"
                 value={form.phone}
@@ -356,19 +358,29 @@ function MealSignupApp() {
               <input
                 name="email"
                 onChange={updateForm}
+                placeholder="name@example.com"
                 required
                 type="email"
                 value={form.email}
               />
             </label>
-            <label>
-              Address
+            <label className="full-span-field">
+              Mailing address
               <input
-                name="address"
+                name="addressLine1"
                 onChange={updateForm}
+                placeholder="PO Box or street address"
                 required
                 type="text"
-                value={form.address}
+                value={form.addressLine1}
+              />
+              <input
+                name="addressLine2"
+                onChange={updateForm}
+                placeholder="City, State Zip"
+                required
+                type="text"
+                value={form.addressLine2}
               />
             </label>
             <label>
@@ -410,7 +422,7 @@ function MealSignupApp() {
               onChange={updateForm}
               type="checkbox"
             />
-            Send confirmation and reminder texts
+            Send one-week and day-before text reminders
           </label>
         </section>
 
@@ -456,8 +468,8 @@ function MealSignupApp() {
             <div>
               <dt>Reminder plan</dt>
               <dd>
-                Email confirmation, plus one-week and day-before reminders
-                {form.textReminders ? ' by text' : ''}
+                Email confirmation and one-week email reminder
+                {form.textReminders ? ', plus one-week and day-before texts' : ''}
               </dd>
             </div>
           </dl>
@@ -482,11 +494,14 @@ function MealSignupApp() {
 
 function ReimbursementApp() {
   const [form, setForm] = useState({
+    signupId: '',
     fullName: '',
+    providerAddress: '',
     className: '',
     classDate: '',
     notes: '',
   })
+  const [availableMeals, setAvailableMeals] = useState([])
   const [receipts, setReceipts] = useState([emptyReceipt()])
   const [submitting, setSubmitting] = useState(false)
   const [result, setResult] = useState(null)
@@ -502,6 +517,46 @@ function ReimbursementApp() {
     setResult(null)
     setError('')
     setForm((current) => ({ ...current, [name]: value }))
+  }
+
+  useEffect(() => {
+    let active = true
+
+    async function loadProvidedMeals() {
+      try {
+        const response = await fetch(API_STATE_URL, {
+          headers: { Accept: 'application/json' },
+          cache: 'no-store',
+        })
+        const payload = await response.json().catch(() => ({}))
+        if (!response.ok || !payload.state || !active) return
+        setAvailableMeals(providedMealOptions(payload.state))
+      } catch (loadError) {
+        console.warn('Could not load provided meals for reimbursement.', loadError)
+      }
+    }
+
+    loadProvidedMeals()
+    return () => {
+      active = false
+    }
+  }, [])
+
+  const selectedMeal = availableMeals.find((meal) => meal.id === form.signupId)
+
+  const chooseProvidedMeal = (event) => {
+    const signupId = event.target.value
+    const meal = availableMeals.find((item) => item.id === signupId)
+    setResult(null)
+    setError('')
+    setForm((current) => ({
+      ...current,
+      signupId,
+      fullName: meal?.fullName || '',
+      providerAddress: meal?.providerAddress || '',
+      className: meal?.className || '',
+      classDate: meal?.date || '',
+    }))
   }
 
   const updateReceipt = (id, updates) => {
@@ -563,7 +618,7 @@ function ReimbursementApp() {
       }))
 
     try {
-      const response = await fetch(apiUrl('/api/reimbursement'), {
+      const response = await fetch(apiUrl(`/api/reimbursement?app=${API_APP_ID}`), {
         method: 'POST',
         headers: {
           Accept: 'application/json',
@@ -576,7 +631,8 @@ function ReimbursementApp() {
         throw new Error(payload.error || 'The reimbursement request was not saved.')
       }
       setResult(payload)
-      setForm({ fullName: '', className: '', classDate: '', notes: '' })
+      setAvailableMeals((current) => current.filter((meal) => meal.id !== form.signupId))
+      setForm({ signupId: '', fullName: '', providerAddress: '', className: '', classDate: '', notes: '' })
       setReceipts([emptyReceipt()])
     } catch (submitError) {
       setError(submitError.message)
@@ -606,43 +662,45 @@ function ReimbursementApp() {
       <form className="reimbursement-layout" onSubmit={handleSubmit}>
         <section className="panel">
           <div className="section-heading">
-            <p className="eyebrow">Request details</p>
-            <h2>Who Should Be Reimbursed?</h2>
+            <p className="eyebrow">Step 1</p>
+            <h2>Choose Your Provided Meal</h2>
           </div>
 
-          <div className="field-grid">
+          {!result && (
             <label>
-              Full name
-              <input
-                name="fullName"
-                onChange={updateForm}
+              Provided meal
+              <select
+                name="signupId"
+                onChange={chooseProvidedMeal}
                 required
-                type="text"
-                value={form.fullName}
-              />
+                value={form.signupId}
+              >
+                <option value="">Choose a meal</option>
+                {availableMeals.map((meal) => (
+                  <option key={meal.id} value={meal.id}>
+                    {meal.label}
+                  </option>
+                ))}
+              </select>
             </label>
-            <label>
-              Class
-              <input
-                name="className"
-                onChange={updateForm}
-                placeholder="Example: DTM Goshen"
-                required
-                type="text"
-                value={form.className}
-              />
-            </label>
-            <label>
-              Class date
-              <input
-                name="classDate"
-                onChange={updateForm}
-                required
-                type="date"
-                value={form.classDate}
-              />
-            </label>
-          </div>
+          )}
+
+          {selectedMeal && (
+            <dl className="selected-meal-details">
+              <div>
+                <dt>Name of meal provider</dt>
+                <dd>{selectedMeal.fullName}</dd>
+              </div>
+              <div>
+                <dt>Full address</dt>
+                <dd>{selectedMeal.providerAddress || 'No mailing address on file'}</dd>
+              </div>
+              <div>
+                <dt>Class and date</dt>
+                <dd>{selectedMeal.className} - {formatDate(selectedMeal.date)}</dd>
+              </div>
+            </dl>
+          )}
 
           <label>
             Notes
@@ -658,7 +716,7 @@ function ReimbursementApp() {
         <section className="panel">
           <div className="section-heading receipt-heading">
             <div>
-              <p className="eyebrow">Receipts</p>
+              <p className="eyebrow">Step 2</p>
               <h2>Upload Receipts</h2>
             </div>
             <button className="secondary-action" onClick={addReceipt} type="button">
@@ -763,6 +821,11 @@ function ReimbursementApp() {
               Request ID: {result.requestId}
             </p>
           )}
+          {result && (
+            <a className="primary-action link-action" href={appUrl()}>
+              Meal Signup
+            </a>
+          )}
           {error && <p className="error-message">{error}</p>}
         </aside>
       </form>
@@ -790,6 +853,40 @@ function readFileAsDataUrl(file) {
   })
 }
 
+function providedMealOptions(state) {
+  const signups = Array.isArray(state?.signups) ? state.signups : []
+  return signups
+    .flatMap((signup) =>
+      (signup.dateDetails || [])
+        .filter((detail) => !(signup.reimbursedDates || []).includes(detail.date))
+        .map((detail) => ({
+          id: `${signup.id}:${detail.date}`,
+          signupId: signup.id,
+          date: detail.date,
+          fullName: signup.fullName || '',
+          providerAddress: signup.addressLine || '',
+          className: detail.className || signup.locationName || '',
+          label: [
+            formatDate(detail.date),
+            detail.className || signup.locationName,
+            signup.fullName,
+            signup.meal,
+          ].filter(Boolean).join(' - '),
+        })),
+    )
+    .sort((a, b) => a.date.localeCompare(b.date) || a.fullName.localeCompare(b.fullName))
+}
+
+function dateIsChosen(locationId, date, signups = []) {
+  return signups.some((signup) =>
+    signup.locationId === locationId && (signup.dates || []).includes(date),
+  )
+}
+
+function locationHasChosenMeals(locationId, signups = []) {
+  return signups.some((signup) => signup.locationId === locationId)
+}
+
 function formatCurrency(value) {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -810,6 +907,7 @@ function AdminApp() {
     password: '',
     accessLevel: 'schedule',
   })
+  const [reimbursementFilter, setReimbursementFilter] = useState('pending')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
 
@@ -885,10 +983,27 @@ function AdminApp() {
   }
 
   const removeLocation = (id) => {
+    const location = locations.find((item) => item.id === id)
+    if (locationHasChosenMeals(id, adminData?.signups || [])) {
+      setError('Locations with chosen meal dates cannot be deleted.')
+      return
+    }
+    if (
+      !window.confirm(`Delete ${location?.name || 'this location'} and all open meal dates?`) ||
+      !window.confirm('Please confirm again. This will permanently remove the location and its open dates.')
+    ) {
+      return
+    }
     setLocations((current) => current.filter((location) => location.id !== id))
   }
 
   const updateDate = (locationId, index, updates) => {
+    const location = locations.find((item) => item.id === locationId)
+    const day = location?.days?.[index]
+    if (day && dateIsChosen(locationId, day.date, adminData?.signups || [])) {
+      setError('Chosen meal dates cannot be modified. Remove or change the meal preparer first.')
+      return
+    }
     setLocations((current) =>
       current.map((location) =>
         location.id === locationId
@@ -926,6 +1041,12 @@ function AdminApp() {
   }
 
   const removeDate = (locationId, index) => {
+    const location = locations.find((item) => item.id === locationId)
+    const day = location?.days?.[index]
+    if (day && dateIsChosen(locationId, day.date, adminData?.signups || [])) {
+      setError('Chosen meal dates cannot be removed. Remove or change the meal preparer first.')
+      return
+    }
     setLocations((current) =>
       current.map((location) =>
         location.id === locationId
@@ -941,6 +1062,12 @@ function AdminApp() {
   const saveLocations = async () => {
     setError('')
     setMessage('')
+    if (
+      !window.confirm('Save changes to meal locations and dates?') ||
+      !window.confirm('Please confirm again before modifying the meal setup.')
+    ) {
+      return
+    }
     try {
       const response = await fetch(apiUrl(`/api/admin-locations?app=${API_APP_ID}`), {
         method: 'POST',
@@ -1151,6 +1278,11 @@ function AdminApp() {
     const dateMatches = !filters.date || row.date === filters.date
     return locationMatches && dateMatches
   })
+  const reimbursementRows = (adminData.reimbursements || []).filter((request) =>
+    reimbursementFilter === 'completed'
+      ? request.status === 'completed'
+      : request.status !== 'completed',
+  )
 
   return (
     <main>
@@ -1383,11 +1515,24 @@ function AdminApp() {
             <div className="section-heading admin-heading-row no-print">
               <div>
                 <p className="eyebrow">Accounting</p>
-                <h2>Reimbursement Requests</h2>
+                <h2>{reimbursementFilter === 'completed' ? 'Completed Requests' : 'Reimbursement Requests'}</h2>
               </div>
-              <button className="secondary-action" onClick={() => window.print()} type="button">
-                Print
-              </button>
+              <div className="admin-heading-actions">
+                <button
+                  className="text-action"
+                  onClick={() =>
+                    setReimbursementFilter((current) =>
+                      current === 'completed' ? 'pending' : 'completed',
+                    )
+                  }
+                  type="button"
+                >
+                  {reimbursementFilter === 'completed' ? 'Pending Requests' : 'Completed Requests'}
+                </button>
+                <button className="secondary-action" onClick={() => window.print()} type="button">
+                  Print
+                </button>
+              </div>
             </div>
             <table className="schedule-table">
               <thead>
@@ -1402,7 +1547,7 @@ function AdminApp() {
                 </tr>
               </thead>
               <tbody>
-                {(adminData.reimbursements || []).map((request) => (
+                {reimbursementRows.map((request) => (
                   <tr key={request.id}>
                     <td>{formatDateTimeText(request.createdAt)}</td>
                     <td>{request.fullName}</td>

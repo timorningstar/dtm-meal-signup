@@ -377,8 +377,12 @@ async function createMealSignup(request, appId = "mealSignup") {
   const body = request.body || {};
   const dates = Array.isArray(body.dates) ? body.dates.map(clean).filter(Boolean) : [];
   const locationId = clean(body.locationId);
+  const email = normalizeEmail(body.email);
   if (!locationId || !dates.length) {
     return {ok: false, error: "Choose a location and at least one meal date."};
+  }
+  if (!isValidEmail(email)) {
+    return {ok: false, error: "Enter a valid email address."};
   }
 
   const stateRef = stateRefFor(mealAppId);
@@ -424,6 +428,9 @@ async function createMealSignup(request, appId = "mealSignup") {
 }
 
 function buildMealSignup(body, location, dates, availableDates) {
+  const addressLine1 = clean(body.addressLine1);
+  const addressLine2 = clean(body.addressLine2);
+  const addressLine = [addressLine1, addressLine2].filter(Boolean).join(", ") || clean(body.address);
   return {
     id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`,
     createdAt: new Date().toISOString(),
@@ -441,7 +448,9 @@ function buildMealSignup(body, location, dates, availableDates) {
     fullName: clean(body.fullName),
     phone: clean(body.phone),
     email: normalizeEmail(body.email),
-    addressLine: clean(body.address),
+    addressLine,
+    addressLine1,
+    addressLine2,
     churchGroup: clean(body.churchGroup),
     meal: clean(body.meal),
     notes: clean(body.notes),
@@ -473,16 +482,6 @@ function buildMealEmails(signup, templates) {
       type: "one-week-reminder",
       status: "queued",
     });
-    messages.push({
-      id: `${signup.id}-${dateDetail.date}-email-day-before`,
-      signupId: signup.id,
-      to: signup.email,
-      subject: fillTemplate(templates["day-before-reminder"].subject, values),
-      body: fillTemplate(templates["day-before-reminder"].body, values),
-      sendOn: reminderIso(dateDetail.date, -1),
-      type: "day-before-reminder",
-      status: "queued",
-    });
   }
   return messages;
 }
@@ -492,15 +491,6 @@ function buildMealTextMessages(signup, templates) {
   const messages = [];
   for (const dateDetail of signup.dateDetails) {
     const values = mealTemplateValues(signup, dateDetail);
-    messages.push({
-      id: `${signup.id}-${dateDetail.date}-sms-confirmation`,
-      signupId: signup.id,
-      to: signup.phone,
-      body: fillTemplate(templates.confirmation, values),
-      sendOn: new Date().toISOString(),
-      type: "confirmation",
-      status: "queued",
-    });
     messages.push({
       id: `${signup.id}-${dateDetail.date}-sms-one-week`,
       signupId: signup.id,
@@ -586,13 +576,18 @@ function formatDateTime(value) {
   }).format(new Date(value));
 }
 
-async function createReimbursementRequest(request) {
+async function createReimbursementRequest(request, appId = "mealSignup") {
+  const mealAppId = appId === "mealSignup" ? appId : "mealSignup";
   const body = request.body || {};
   const receipts = Array.isArray(body.receipts) ? body.receipts : [];
+  const chosenMeal = parseReimbursementMealId(body.signupId);
   const fullName = clean(body.fullName);
   const className = clean(body.className);
   const classDate = clean(body.classDate);
 
+  if (!chosenMeal.signupId || !chosenMeal.mealDate) {
+    return {ok: false, error: "Choose your provided meal before submitting reimbursement."};
+  }
   if (!fullName || !className || !classDate) {
     return {ok: false, error: "Name, class, and date are required."};
   }
@@ -641,20 +636,50 @@ async function createReimbursementRequest(request) {
     uploadedReceipts = await saveReimbursementFilesToFirestore(requestId, normalizedReceipts, pdfBuffer);
   }
 
-  await db.collection("reimbursementRequests").doc(requestId).set({
-    requestId,
-    createdAt,
-    status: "pending",
-    fullName,
-    className,
-    classDate,
-    notes: clean(body.notes),
-    totalAmount,
-    receiptCount: uploadedReceipts.length,
-    receipts: uploadedReceipts,
-    pdfPath,
-    fileMode,
-  });
+  const stateRef = stateRefFor(mealAppId);
+  const requestRef = db.collection("reimbursementRequests").doc(requestId);
+  try {
+    await db.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(stateRef);
+      const state = snapshot.exists
+        ? normalizeState(snapshot.data().state, mealAppId)
+        : normalizeState(defaultState(mealAppId), mealAppId);
+      const signup = (state.signups || []).find((item) => item.id === chosenMeal.signupId);
+      if (!signup || !(signup.dates || []).includes(chosenMeal.mealDate)) {
+        throw new Error("That provided meal could not be found.");
+      }
+      if ((signup.reimbursedDates || []).includes(chosenMeal.mealDate)) {
+        throw new Error("A reimbursement request has already been submitted for that meal date.");
+      }
+      signup.reimbursedDates = [...new Set([...(signup.reimbursedDates || []), chosenMeal.mealDate])];
+      signup.reimbursementRequestIds = [
+        ...new Set([...(signup.reimbursementRequestIds || []), requestId]),
+      ];
+      transaction.set(stateRef, {
+        state,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, {merge: true});
+      transaction.set(requestRef, {
+        requestId,
+        createdAt,
+        status: "pending",
+        signupId: chosenMeal.signupId,
+        mealDate: chosenMeal.mealDate,
+        fullName,
+        providerAddress: clean(body.providerAddress),
+        className,
+        classDate,
+        notes: clean(body.notes),
+        totalAmount,
+        receiptCount: uploadedReceipts.length,
+        receipts: uploadedReceipts,
+        pdfPath,
+        fileMode,
+      });
+    });
+  } catch (error) {
+    return {ok: false, error: error.message};
+  }
 
   return {
     ok: true,
@@ -663,6 +688,14 @@ async function createReimbursementRequest(request) {
     receiptCount: uploadedReceipts.length,
     pdfPath,
     fileMode,
+  };
+}
+
+function parseReimbursementMealId(value) {
+  const [signupId, mealDate] = clean(value).split(":");
+  return {
+    signupId: clean(signupId),
+    mealDate: clean(mealDate),
   };
 }
 
@@ -945,10 +978,50 @@ async function updateMealLocations(request, session) {
   const state = await readState(session.appId);
   const locations = Array.isArray(request.body?.locations) ? request.body.locations : [];
   if (!locations.length) return {ok: false, error: "At least one location is required."};
-  state.locations = sanitizeMealLocations(locations);
+  const nextLocations = sanitizeMealLocations(locations);
+  try {
+    validateMealLocationChanges(state.locations || [], nextLocations, state.signups || []);
+  } catch (error) {
+    return {ok: false, error: error.message};
+  }
+  state.locations = nextLocations;
   logStateChange(state, session.username, "Update meal schedule", `${session.username} updated meal locations and dates.`);
   await writeState(state, session.appId);
   return {ok: true, locations: state.locations, adminLog: state.adminLog};
+}
+
+function validateMealLocationChanges(currentLocations, nextLocations, signups) {
+  const nextById = new Map(nextLocations.map((location) => [location.id, location]));
+  for (const current of currentLocations) {
+    const hasChosenMeals = signups.some((signup) => signup.locationId === current.id);
+    const next = nextById.get(current.id);
+    if (!next && hasChosenMeals) {
+      throw new Error("Locations with chosen meal dates cannot be deleted.");
+    }
+    if (!next) continue;
+
+    const nextDaysByDate = new Map((next.days || []).map((day) => [day.date, day]));
+    for (const day of current.days || []) {
+      if (!mealDateIsChosen(current.id, day.date, signups)) continue;
+      const nextDay = nextDaysByDate.get(day.date);
+      if (!nextDay) {
+        throw new Error("Chosen meal dates cannot be removed.");
+      }
+      if (
+        clean(nextDay.time) !== clean(day.time) ||
+        clean(nextDay.className) !== clean(day.className) ||
+        String(nextDay.expectedMealCount || "") !== String(day.expectedMealCount || "")
+      ) {
+        throw new Error("Chosen meal dates cannot be modified.");
+      }
+    }
+  }
+}
+
+function mealDateIsChosen(locationId, date, signups) {
+  return signups.some((signup) =>
+    signup.locationId === locationId && (signup.dates || []).includes(date),
+  );
 }
 
 function sanitizeMealLocations(locations) {
@@ -1173,7 +1246,7 @@ exports.mealApi = onRequest({cors: true, invoker: "public", secrets: providerSec
     }
 
     if (request.method === "POST" && path === "/reimbursement") {
-      const result = await createReimbursementRequest(request);
+      const result = await createReimbursementRequest(request, appId);
       sendJson(response, result.ok ? 200 : 400, result);
       return;
     }
@@ -1592,6 +1665,10 @@ function clean(value) {
 
 function normalizeEmail(value) {
   return clean(value).toLowerCase();
+}
+
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeEmail(value));
 }
 
 function normalizeAdminLogin(value) {
