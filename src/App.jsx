@@ -19,11 +19,17 @@ function SiteFooter() {
   return (
     <footer className="site-footer">
       <nav>
-        <a href="https://www.downtownmin.org">Downtown Ministries of Goshen</a>
+        <a href="https://www.downtownmin.org" rel="noreferrer" target="_blank">
+          Downtown Ministries of Goshen
+        </a>
         <span>|</span>
-        <a href="https://www.downtownmin.org/privacy-policy">Privacy Policy</a>
+        <a href="https://www.downtownmin.org/privacy-policy" rel="noreferrer" target="_blank">
+          Privacy Policy
+        </a>
         <span>|</span>
-        <a href="https://www.downtownmin.org/terms-of-service">Terms of Service</a>
+        <a href="https://www.downtownmin.org/terms-of-service" rel="noreferrer" target="_blank">
+          Terms of Service
+        </a>
         <span>|</span>
         <a href={appUrl('admin')}>Admin</a>
       </nav>
@@ -129,7 +135,7 @@ function MealSignupApp() {
     churchGroup: '',
     meal: '',
     notes: '',
-    textReminders: true,
+    textReminders: false,
   })
 
   useEffect(() => {
@@ -418,6 +424,38 @@ function MealSignupApp() {
             </label>
           </div>
 
+          <div className="sms-consent">
+            <input
+              checked={form.textReminders}
+              id="text-reminders"
+              name="textReminders"
+              onChange={updateForm}
+              type="checkbox"
+            />
+            <label htmlFor="text-reminders">
+              I agree to receive SMS text messages from Downtown Ministries of
+              Goshen regarding volunteer assignment confirmations and reminders.
+              Message frequency varies. Message and data rates may apply. Reply
+              STOP to opt out or HELP for help. View our{' '}
+              <a
+                href="https://www.downtownmin.org/privacy-policy"
+                rel="noreferrer"
+                target="_blank"
+              >
+                Privacy Policy
+              </a>{' '}
+              and{' '}
+              <a
+                href="https://www.downtownmin.org/terms-of-service"
+                rel="noreferrer"
+                target="_blank"
+              >
+                Terms of Service
+              </a>
+              .
+            </label>
+          </div>
+
           <label>
             Notes
             <textarea
@@ -426,16 +464,6 @@ function MealSignupApp() {
               rows="4"
               value={form.notes}
             />
-          </label>
-
-          <label className="check-row">
-            <input
-              checked={form.textReminders}
-              name="textReminders"
-              onChange={updateForm}
-              type="checkbox"
-            />
-            Send one-week and day-before text reminders
           </label>
         </section>
 
