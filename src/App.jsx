@@ -15,6 +15,22 @@ function appUrl(path = '') {
   return `${import.meta.env.BASE_URL}${path.replace(/^\/+/, '')}`
 }
 
+function SiteFooter() {
+  return (
+    <footer className="site-footer">
+      <div>
+        <strong>Downtown Ministries</strong>
+        <span>Meal Signup</span>
+      </div>
+      <nav>
+        <a href={appUrl()}>Meal signup</a>
+        <a href={appUrl('reimbursement')}>Reimbursement</a>
+        <a href={appUrl('admin')}>Admin</a>
+      </nav>
+    </footer>
+  )
+}
+
 function currentAppPath() {
   const basePath = import.meta.env.BASE_URL.replace(/\/$/, '')
   const pathname = window.location.pathname
@@ -256,7 +272,6 @@ function MealSignupApp() {
           </p>
           <div className="header-actions">
             <a href={appUrl('reimbursement')}>Request reimbursement</a>
-            <a href={appUrl('admin')}>Admin</a>
           </div>
         </div>
       </header>
@@ -290,9 +305,7 @@ function MealSignupApp() {
             <p className="eyebrow">Step 2</p>
             <h2>Pick Available Meal Dates</h2>
             <p>
-              {selectedLocation.name} drop-offs are shown below. Claimed dates
-              are marked unavailable and are protected by the Firebase signup
-              endpoint when deployed.
+              Claimed dates are marked unavailable.
             </p>
           </div>
 
@@ -488,6 +501,7 @@ function MealSignupApp() {
           )}
         </aside>
       </form>
+      <SiteFooter />
     </main>
   )
 }
@@ -654,7 +668,6 @@ function ReimbursementApp() {
           </p>
           <div className="header-actions">
             <a href={appUrl()}>Meal signup</a>
-            <a href={appUrl('admin')}>Admin</a>
           </div>
         </div>
       </header>
@@ -829,6 +842,7 @@ function ReimbursementApp() {
           {error && <p className="error-message">{error}</p>}
         </aside>
       </form>
+      <SiteFooter />
     </main>
   )
 }
@@ -904,6 +918,8 @@ function AdminApp() {
   const [accountForm, setAccountForm] = useState({ username: '', password: '' })
   const [passwordForm, setPasswordForm] = useState({ password: '' })
   const [allowChosenDateOverride, setAllowChosenDateOverride] = useState(false)
+  const [bulkDateForms, setBulkDateForms] = useState({})
+  const [reminderForms, setReminderForms] = useState({ emailTemplates: {}, smsTemplates: {} })
   const [regularForm, setRegularForm] = useState({
     username: '',
     password: '',
@@ -930,6 +946,10 @@ function AdminApp() {
       setAdminData(payload)
       setLocations(payload.locations || [])
       setAccountForm({ username: payload.mainAdminUsername || '', password: '' })
+      setReminderForms({
+        emailTemplates: payload.emailTemplates || {},
+        smsTemplates: payload.smsTemplates || {},
+      })
       if (payload.role === 'recovery') setActiveAdminView('adminAccounts')
       if (payload.role === 'accounting') setActiveAdminView('accounting')
       setError('')
@@ -1044,6 +1064,51 @@ function AdminApp() {
     )
   }
 
+  const updateBulkDateForm = (locationId, updates) => {
+    setBulkDateForms((current) => ({
+      ...current,
+      [locationId]: {
+        startDate: '',
+        recurrence: 'weekly',
+        count: '4',
+        time: '5:00 PM',
+        className: '',
+        expectedMealCount: '',
+        ...(current[locationId] || {}),
+        ...updates,
+      },
+    }))
+  }
+
+  const addRecurringDates = (locationId) => {
+    const form = {
+      startDate: '',
+      recurrence: 'weekly',
+      count: '4',
+      time: '5:00 PM',
+      className: '',
+      expectedMealCount: '',
+      ...(bulkDateForms[locationId] || {}),
+    }
+    const count = Number.parseInt(form.count, 10)
+    if (!form.startDate || !count || count < 1) {
+      setError('Enter a start date and number of dates to add.')
+      return
+    }
+    const dates = buildRecurringMealDates(form)
+    setLocations((current) =>
+      current.map((location) =>
+        location.id === locationId
+          ? {
+              ...location,
+              days: [...location.days, ...dates].sort((a, b) => a.date.localeCompare(b.date)),
+            }
+          : location,
+      ),
+    )
+    setError('')
+  }
+
   const removeDate = (locationId, index) => {
     const location = locations.find((item) => item.id === locationId)
     const day = location?.days?.[index]
@@ -1095,6 +1160,54 @@ function AdminApp() {
       setAdminData((current) => ({ ...current, ...payload }))
       setAllowChosenDateOverride(false)
       setMessage('Locations and meal dates saved.')
+    } catch (saveError) {
+      setError(saveError.message)
+    }
+  }
+
+  const updateEmailTemplate = (templateKey, updates) => {
+    setReminderForms((current) => ({
+      ...current,
+      emailTemplates: {
+        ...current.emailTemplates,
+        [templateKey]: {
+          ...(current.emailTemplates?.[templateKey] || {}),
+          ...updates,
+        },
+      },
+    }))
+  }
+
+  const updateSmsTemplate = (templateKey, value) => {
+    setReminderForms((current) => ({
+      ...current,
+      smsTemplates: {
+        ...current.smsTemplates,
+        [templateKey]: value,
+      },
+    }))
+  }
+
+  const saveReminderTemplates = async (event) => {
+    event.preventDefault()
+    setError('')
+    setMessage('')
+    try {
+      const response = await fetch(apiUrl(`/api/admin-reminders?app=${API_APP_ID}`), {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify(reminderForms),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || 'Reminder setup could not be saved.')
+      }
+      setReminderForms({
+        emailTemplates: payload.emailTemplates || {},
+        smsTemplates: payload.smsTemplates || {},
+      })
+      setAdminData((current) => ({ ...current, ...payload }))
+      setMessage('Reminder setup saved.')
     } catch (saveError) {
       setError(saveError.message)
     }
@@ -1338,6 +1451,15 @@ function AdminApp() {
                 Setup
               </button>
             )}
+            {canManageSchedule && (
+              <button
+                className={activeAdminView === 'reminders' ? 'active' : ''}
+                onClick={() => setActiveAdminView('reminders')}
+                type="button"
+              >
+                Reminders Setup
+              </button>
+            )}
             {canViewAccounting && (
               <button
                 className={activeAdminView === 'accounting' ? 'active' : ''}
@@ -1422,7 +1544,63 @@ function AdminApp() {
                       onClick={() => addDate(location.id)}
                       type="button"
                     >
-                      Add date
+                      Add single date
+                    </button>
+                  </div>
+                  <div className="bulk-date-row">
+                    <label>
+                      Start date
+                      <input
+                        onChange={(event) => updateBulkDateForm(location.id, { startDate: event.target.value })}
+                        type="date"
+                        value={bulkDateForms[location.id]?.startDate || ''}
+                      />
+                    </label>
+                    <label>
+                      Recurrence
+                      <select
+                        onChange={(event) => updateBulkDateForm(location.id, { recurrence: event.target.value })}
+                        value={bulkDateForms[location.id]?.recurrence || 'weekly'}
+                      >
+                        <option value="weekly">Weekly</option>
+                        <option value="biweekly">Every 2 weeks</option>
+                        <option value="monthly">Monthly</option>
+                      </select>
+                    </label>
+                    <label>
+                      Number of dates
+                      <input
+                        min="1"
+                        onChange={(event) => updateBulkDateForm(location.id, { count: event.target.value })}
+                        type="number"
+                        value={bulkDateForms[location.id]?.count || '4'}
+                      />
+                    </label>
+                    <label>
+                      Meal time
+                      <input
+                        onChange={(event) => updateBulkDateForm(location.id, { time: event.target.value })}
+                        value={bulkDateForms[location.id]?.time || '5:00 PM'}
+                      />
+                    </label>
+                    <label>
+                      Class name
+                      <input
+                        onChange={(event) => updateBulkDateForm(location.id, { className: event.target.value })}
+                        value={bulkDateForms[location.id]?.className || ''}
+                      />
+                    </label>
+                    <label>
+                      Expected meal #
+                      <input
+                        min="1"
+                        onChange={(event) => updateBulkDateForm(location.id, { expectedMealCount: event.target.value })}
+                        type="number"
+                        value={bulkDateForms[location.id]?.expectedMealCount || ''}
+                      />
+                    </label>
+                    <button className="secondary-action" onClick={() => addRecurringDates(location.id)} type="button">
+                      Add recurring dates
                     </button>
                   </div>
                   <div className="admin-date-list">
@@ -1563,6 +1741,58 @@ function AdminApp() {
               </tbody>
             </table>
           </section>
+        )}
+
+        {canManageSchedule && activeAdminView === 'reminders' && (
+          <form className="panel admin-editor" onSubmit={saveReminderTemplates}>
+            <div className="section-heading">
+              <p className="eyebrow">Reminders Setup</p>
+              <h2>Email and Text Reminder Setup</h2>
+              <p>
+                Available placeholders include {'{name}'}, {'{location}'}, {'{date}'}, {'{time}'}, {'{servingSize}'}, and {'{meal}'}.
+              </p>
+            </div>
+            <div className="reminder-template-grid">
+              {Object.entries(reminderForms.emailTemplates || {}).map(([templateKey, template]) => (
+                <section className="reminder-template-card" key={`email-${templateKey}`}>
+                  <p className="eyebrow">Email</p>
+                  <h3>{reminderLabel(templateKey)}</h3>
+                  <label>
+                    Subject
+                    <input
+                      onChange={(event) => updateEmailTemplate(templateKey, { subject: event.target.value })}
+                      value={template.subject || ''}
+                    />
+                  </label>
+                  <label>
+                    Body
+                    <textarea
+                      onChange={(event) => updateEmailTemplate(templateKey, { body: event.target.value })}
+                      rows="5"
+                      value={template.body || ''}
+                    />
+                  </label>
+                </section>
+              ))}
+              {Object.entries(reminderForms.smsTemplates || {}).map(([templateKey, template]) => (
+                <section className="reminder-template-card" key={`sms-${templateKey}`}>
+                  <p className="eyebrow">Text</p>
+                  <h3>{reminderLabel(templateKey)}</h3>
+                  <label>
+                    Message
+                    <textarea
+                      onChange={(event) => updateSmsTemplate(templateKey, event.target.value)}
+                      rows="5"
+                      value={template || ''}
+                    />
+                  </label>
+                </section>
+              ))}
+            </div>
+            <button className="primary-action admin-save" type="submit">
+              Save reminder setup
+            </button>
+          </form>
         )}
 
         {canViewAccounting && activeAdminView === 'accounting' && (
@@ -1762,6 +1992,35 @@ function scheduleRows(locations, signups = []) {
       }),
     )
     .sort((a, b) => a.date.localeCompare(b.date) || a.locationName.localeCompare(b.locationName))
+}
+
+function buildRecurringMealDates(form) {
+  const count = Number.parseInt(form.count, 10)
+  const dates = []
+  const cursor = new Date(`${form.startDate}T12:00:00`)
+  for (let index = 0; index < count; index += 1) {
+    const date = cursor.toISOString().slice(0, 10)
+    dates.push({
+      date,
+      time: form.time || '5:00 PM',
+      day: weekdayForDate(date),
+      className: form.className || '',
+      expectedMealCount: form.expectedMealCount || '',
+    })
+    if (form.recurrence === 'monthly') {
+      cursor.setMonth(cursor.getMonth() + 1)
+    } else {
+      cursor.setDate(cursor.getDate() + (form.recurrence === 'biweekly' ? 14 : 7))
+    }
+  }
+  return dates
+}
+
+function reminderLabel(key) {
+  return String(key || '')
+    .split('-')
+    .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)
+    .join(' ')
 }
 
 function formatDateTimeText(value) {

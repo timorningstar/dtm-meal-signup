@@ -103,6 +103,39 @@ h2 {
   box-shadow: 0 0 0 2px rgba(31, 111, 139, 0.16);
 }
 
+.site-footer {
+  align-items: center;
+  background: #202833;
+  color: #fff;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 24px clamp(20px, 5vw, 72px);
+}
+
+.site-footer div,
+.site-footer nav {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.site-footer span {
+  color: #cbd5e1;
+}
+
+.site-footer a {
+  color: #fff;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.site-footer a:hover {
+  text-decoration: underline;
+}
+
 .section-band {
   padding: 34px clamp(20px, 5vw, 72px) 42px;
 }
@@ -573,6 +606,17 @@ dd {
   grid-template-columns: minmax(0, 150px) minmax(0, 130px) minmax(0, 130px) minmax(0, 1fr) minmax(0, 130px) auto;
 }
 
+.bulk-date-row {
+  align-items: end;
+  background: #f8fafc;
+  border: 1px solid #d7dee6;
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 14px;
+}
+
 .admin-save {
   max-width: 340px;
 }
@@ -617,6 +661,26 @@ dd {
 .regular-admins .secondary-action {
   align-self: end;
   min-height: 46px;
+}
+
+.reminder-template-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 18px;
+}
+
+.reminder-template-card {
+  border: 1px solid #d7dee6;
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.reminder-template-card h3 {
+  color: #202833;
+  margin: 0;
 }
 
 .regular-admin-list {
@@ -744,6 +808,8 @@ dd {
   }
 
   .admin-date-row,
+  .bulk-date-row,
+  .reminder-template-grid,
   .schedule-filters {
     grid-template-columns: 1fr;
   }

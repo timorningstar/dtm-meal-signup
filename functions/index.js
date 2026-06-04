@@ -903,6 +903,8 @@ async function adminState(appId, session) {
     locations: state.locations || [],
     signups: state.signups || [],
     adminLog: state.adminLog || [],
+    emailTemplates: state.emailTemplates || {},
+    smsTemplates: state.smsTemplates || {},
     mainAdminUsername: state.adminCredentials?.username || "admin",
     regularAdmins: (state.regularAdmins || []).map((admin) => ({
       id: admin.id,
@@ -994,6 +996,26 @@ async function updateMealLocations(request, session) {
   );
   await writeState(state, session.appId);
   return {ok: true, locations: state.locations, adminLog: state.adminLog};
+}
+
+async function updateReminderTemplates(request, session) {
+  const state = await readState(session.appId);
+  state.emailTemplates = sanitizeEmailTemplates({
+    ...state.emailTemplates,
+    ...(request.body?.emailTemplates || {}),
+  });
+  state.smsTemplates = {
+    ...state.smsTemplates,
+    ...(request.body?.smsTemplates || {}),
+  };
+  logStateChange(state, session.username, "Update reminder setup", `${session.username} updated email and text reminder setup.`);
+  await writeState(state, session.appId);
+  return {
+    ok: true,
+    emailTemplates: state.emailTemplates,
+    smsTemplates: state.smsTemplates,
+    adminLog: state.adminLog,
+  };
 }
 
 function validateMealLocationChanges(currentLocations, nextLocations, signups, allowChosenDateOverride = false) {
@@ -1280,6 +1302,13 @@ exports.mealApi = onRequest({cors: true, invoker: "public", secrets: providerSec
     if (request.method === "POST" && path === "/admin-locations") {
       const session = await requireAdmin(request, appId, ["full", "schedule"]);
       const result = await updateMealLocations(request, session);
+      sendJson(response, result.ok ? 200 : 400, result);
+      return;
+    }
+
+    if (request.method === "POST" && path === "/admin-reminders") {
+      const session = await requireAdmin(request, appId, ["full", "schedule"]);
+      const result = await updateReminderTemplates(request, session);
       sendJson(response, result.ok ? 200 : 400, result);
       return;
     }
