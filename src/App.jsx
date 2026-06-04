@@ -903,6 +903,7 @@ function AdminApp() {
   const [filters, setFilters] = useState({ locationId: 'all', date: '' })
   const [accountForm, setAccountForm] = useState({ username: '', password: '' })
   const [passwordForm, setPasswordForm] = useState({ password: '' })
+  const [allowChosenDateOverride, setAllowChosenDateOverride] = useState(false)
   const [regularForm, setRegularForm] = useState({
     username: '',
     password: '',
@@ -1047,8 +1048,17 @@ function AdminApp() {
     const location = locations.find((item) => item.id === locationId)
     const day = location?.days?.[index]
     if (day && dateIsChosen(locationId, day.date, adminData?.signups || [])) {
-      setError('Chosen meal dates cannot be removed. Remove or change the meal preparer first.')
-      return
+      if (!isFull) {
+        setError('Chosen meal dates cannot be removed. Remove or change the meal preparer first.')
+        return
+      }
+      if (
+        !window.confirm('This meal date already has a meal preparer. Remove it anyway?') ||
+        !window.confirm('Please confirm again. This will remove the chosen meal date from setup.')
+      ) {
+        return
+      }
+      setAllowChosenDateOverride(true)
     }
     setLocations((current) =>
       current.map((location) =>
@@ -1075,7 +1085,7 @@ function AdminApp() {
       const response = await fetch(apiUrl(`/api/admin-locations?app=${API_APP_ID}`), {
         method: 'POST',
         headers: authHeaders(),
-        body: JSON.stringify({ locations }),
+        body: JSON.stringify({ locations, allowChosenDateOverride }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || !payload.ok) {
@@ -1083,6 +1093,7 @@ function AdminApp() {
       }
       setLocations(payload.locations)
       setAdminData((current) => ({ ...current, ...payload }))
+      setAllowChosenDateOverride(false)
       setMessage('Locations and meal dates saved.')
     } catch (saveError) {
       setError(saveError.message)

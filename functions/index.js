@@ -977,20 +977,26 @@ async function signedStorageUrl(path) {
 async function updateMealLocations(request, session) {
   const state = await readState(session.appId);
   const locations = Array.isArray(request.body?.locations) ? request.body.locations : [];
+  const allowChosenDateOverride = session.role === "full" && request.body?.allowChosenDateOverride === true;
   if (!locations.length) return {ok: false, error: "At least one location is required."};
   const nextLocations = sanitizeMealLocations(locations);
   try {
-    validateMealLocationChanges(state.locations || [], nextLocations, state.signups || []);
+    validateMealLocationChanges(state.locations || [], nextLocations, state.signups || [], allowChosenDateOverride);
   } catch (error) {
     return {ok: false, error: error.message};
   }
   state.locations = nextLocations;
-  logStateChange(state, session.username, "Update meal schedule", `${session.username} updated meal locations and dates.`);
+  logStateChange(
+    state,
+    session.username,
+    "Update meal schedule",
+    `${session.username} updated meal locations and dates${allowChosenDateOverride ? " with a chosen-date override" : ""}.`,
+  );
   await writeState(state, session.appId);
   return {ok: true, locations: state.locations, adminLog: state.adminLog};
 }
 
-function validateMealLocationChanges(currentLocations, nextLocations, signups) {
+function validateMealLocationChanges(currentLocations, nextLocations, signups, allowChosenDateOverride = false) {
   const nextById = new Map(nextLocations.map((location) => [location.id, location]));
   for (const current of currentLocations) {
     const hasChosenMeals = signups.some((signup) => signup.locationId === current.id);
@@ -1005,6 +1011,7 @@ function validateMealLocationChanges(currentLocations, nextLocations, signups) {
       if (!mealDateIsChosen(current.id, day.date, signups)) continue;
       const nextDay = nextDaysByDate.get(day.date);
       if (!nextDay) {
+        if (allowChosenDateOverride) continue;
         throw new Error("Chosen meal dates cannot be removed.");
       }
       if (
