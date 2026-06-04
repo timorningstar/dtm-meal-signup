@@ -1275,6 +1275,7 @@ function AdminApp() {
   const canManageSchedule = ['full', 'schedule'].includes(adminData.role)
   const canViewAccounting = ['full', 'accounting'].includes(adminData.role)
   const canViewSchedule = !isRecovery && (canManageSchedule || isFull)
+  const canViewSetup = !isRecovery && canManageSchedule
   const canViewAdminAccounts = isFull || isRecovery
   const allDates = scheduleRows(locations, adminData.signups || [])
   const filteredRows = allDates.filter((row) => {
@@ -1317,6 +1318,15 @@ function AdminApp() {
                 Schedule
               </button>
             )}
+            {canViewSetup && (
+              <button
+                className={activeAdminView === 'setup' ? 'active' : ''}
+                onClick={() => setActiveAdminView('setup')}
+                type="button"
+              >
+                Setup
+              </button>
+            )}
             {canViewAccounting && (
               <button
                 className={activeAdminView === 'accounting' ? 'active' : ''}
@@ -1340,7 +1350,7 @@ function AdminApp() {
       </header>
 
       <section className="admin-shell">
-        {canManageSchedule && activeAdminView === 'schedule' && (
+        {canManageSchedule && activeAdminView === 'setup' && (
           <section className="panel admin-editor">
             <div className="section-heading admin-heading-row">
               <div>
