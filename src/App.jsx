@@ -942,7 +942,7 @@ function AdminApp() {
   const [adminData, setAdminData] = useState(null)
   const [activeAdminView, setActiveAdminView] = useState('schedule')
   const [locations, setLocations] = useState([])
-  const [filters, setFilters] = useState({ locationId: 'all', date: '' })
+  const [filters, setFilters] = useState({ locationId: 'all', month: '', className: 'all' })
   const [accountForm, setAccountForm] = useState({ username: '', password: '' })
   const [passwordForm, setPasswordForm] = useState({ password: '' })
   const [allowChosenDateOverride, setAllowChosenDateOverride] = useState(false)
@@ -1062,6 +1062,13 @@ function AdminApp() {
   const updateDate = (locationId, index, updates) => {
     const location = locations.find((item) => item.id === locationId)
     const day = location?.days?.[index]
+    if (
+      updates.date &&
+      location?.days?.some((mealDate, dayIndex) => dayIndex !== index && mealDate.date === updates.date) &&
+      !window.confirm('That date is already set up - do you want to add another on the same day?')
+    ) {
+      return
+    }
     if (day && dateIsChosen(locationId, day.date, adminData?.signups || [])) {
       setError('Chosen meal dates cannot be modified. Remove or change the meal preparer first.')
       return
@@ -1134,6 +1141,16 @@ function AdminApp() {
       return
     }
     const dates = buildRecurringMealDates(form)
+    const location = locations.find((item) => item.id === locationId)
+    const duplicateDates = dates.filter((date) =>
+      location?.days?.some((day) => day.date === date.date),
+    )
+    if (
+      duplicateDates.length &&
+      !window.confirm('That date is already set up - do you want to add another on the same day?')
+    ) {
+      return
+    }
     setLocations((current) =>
       current.map((location) =>
         location.id === locationId
@@ -1440,11 +1457,15 @@ function AdminApp() {
   const canViewSetup = !isRecovery && canManageSchedule
   const canViewAdminAccounts = isFull || isRecovery
   const allDates = scheduleRows(locations, adminData.signups || [])
+  const classFilterOptions = [
+    ...new Set(allDates.map((row) => row.className).filter(Boolean)),
+  ].sort((a, b) => a.localeCompare(b))
   const filteredRows = allDates.filter((row) => {
     const locationMatches =
       filters.locationId === 'all' || row.locationId === filters.locationId
-    const dateMatches = !filters.date || row.date === filters.date
-    return locationMatches && dateMatches
+    const monthMatches = !filters.month || row.date.startsWith(filters.month)
+    const classMatches = filters.className === 'all' || row.className === filters.className
+    return locationMatches && monthMatches && classMatches
   })
   const reimbursementRows = (adminData.reimbursements || []).filter((request) =>
     reimbursementFilter === 'completed'
@@ -1740,14 +1761,30 @@ function AdminApp() {
                 </select>
               </label>
               <label>
-                Day
+                Month
                 <input
                   onChange={(event) =>
-                    setFilters((current) => ({ ...current, date: event.target.value }))
+                    setFilters((current) => ({ ...current, month: event.target.value }))
                   }
-                  type="date"
-                  value={filters.date}
+                  type="month"
+                  value={filters.month}
                 />
+              </label>
+              <label>
+                Class
+                <select
+                  onChange={(event) =>
+                    setFilters((current) => ({ ...current, className: event.target.value }))
+                  }
+                  value={filters.className}
+                >
+                  <option value="all">All classes</option>
+                  {classFilterOptions.map((className) => (
+                    <option key={className} value={className}>
+                      {className}
+                    </option>
+                  ))}
+                </select>
               </label>
             </div>
             <table className="schedule-table">
