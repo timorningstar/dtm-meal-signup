@@ -1024,7 +1024,8 @@ function validateMealLocationChanges(currentLocations, nextLocations, signups, a
     const hasChosenMeals = signups.some((signup) => signup.locationId === current.id);
     const next = nextById.get(current.id);
     if (!next && hasChosenMeals) {
-      throw new Error("Locations with chosen meal dates cannot be deleted.");
+      if (allowChosenDateOverride) continue;
+      throw new Error("Locations with signup history cannot be deleted without the full-admin override.");
     }
     if (!next) continue;
 

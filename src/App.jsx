@@ -1037,10 +1037,19 @@ function AdminApp() {
   const removeLocation = (id) => {
     const location = locations.find((item) => item.id === id)
     if (locationHasChosenMeals(id, adminData?.signups || [])) {
-      setError('Locations with chosen meal dates cannot be deleted.')
-      return
-    }
-    if (
+      if (!allowChosenDateOverride) {
+        setError('This location has signup history. Turn on the chosen-date override before deleting it.')
+        return
+      }
+      if (
+        !window.confirm(
+          `${location?.name || 'This location'} has signup history. Delete it anyway using the full-admin override?`,
+        ) ||
+        !window.confirm('Please confirm again. This will remove the location from meal setup, but past signup records will remain in history.')
+      ) {
+        return
+      }
+    } else if (
       !window.confirm(`Delete ${location?.name || 'this location'} and all open meal dates?`) ||
       !window.confirm('Please confirm again. This will permanently remove the location and its open dates.')
     ) {
@@ -1522,6 +1531,16 @@ function AdminApp() {
                 Add location
               </button>
             </div>
+            {isFull && (
+              <label className="check-row admin-override-row">
+                <input
+                  checked={allowChosenDateOverride}
+                  onChange={(event) => setAllowChosenDateOverride(event.target.checked)}
+                  type="checkbox"
+                />
+                Full-admin override for removing locations or meal dates with signup history
+              </label>
+            )}
 
             <div className="admin-location-list">
               {locations.map((location) => (
