@@ -898,6 +898,7 @@ function AdminApp() {
   const [token, setToken] = useState('')
   const [login, setLogin] = useState({ username: '', password: '' })
   const [adminData, setAdminData] = useState(null)
+  const [activeAdminView, setActiveAdminView] = useState('schedule')
   const [locations, setLocations] = useState([])
   const [filters, setFilters] = useState({ locationId: 'all', date: '' })
   const [accountForm, setAccountForm] = useState({ username: '', password: '' })
@@ -928,6 +929,8 @@ function AdminApp() {
       setAdminData(payload)
       setLocations(payload.locations || [])
       setAccountForm({ username: payload.mainAdminUsername || '', password: '' })
+      if (payload.role === 'recovery') setActiveAdminView('adminAccounts')
+      if (payload.role === 'accounting') setActiveAdminView('accounting')
       setError('')
     } catch (loadError) {
       sessionStorage.removeItem(ADMIN_TOKEN_KEY)
@@ -1271,6 +1274,8 @@ function AdminApp() {
   const isFull = adminData.role === 'full'
   const canManageSchedule = ['full', 'schedule'].includes(adminData.role)
   const canViewAccounting = ['full', 'accounting'].includes(adminData.role)
+  const canViewSchedule = !isRecovery && (canManageSchedule || isFull)
+  const canViewAdminAccounts = isFull || isRecovery
   const allDates = scheduleRows(locations, adminData.signups || [])
   const filteredRows = allDates.filter((row) => {
     const locationMatches =
@@ -1302,11 +1307,40 @@ function AdminApp() {
               Log out
             </button>
           </div>
+          <nav className="top-menu">
+            {canViewSchedule && (
+              <button
+                className={activeAdminView === 'schedule' ? 'active' : ''}
+                onClick={() => setActiveAdminView('schedule')}
+                type="button"
+              >
+                Schedule
+              </button>
+            )}
+            {canViewAccounting && (
+              <button
+                className={activeAdminView === 'accounting' ? 'active' : ''}
+                onClick={() => setActiveAdminView('accounting')}
+                type="button"
+              >
+                Accounting
+              </button>
+            )}
+            {canViewAdminAccounts && (
+              <button
+                className={activeAdminView === 'adminAccounts' ? 'active' : ''}
+                onClick={() => setActiveAdminView('adminAccounts')}
+                type="button"
+              >
+                Admin Accounts
+              </button>
+            )}
+          </nav>
         </div>
       </header>
 
       <section className="admin-shell">
-        {canManageSchedule && (
+        {canManageSchedule && activeAdminView === 'schedule' && (
           <section className="panel admin-editor">
             <div className="section-heading admin-heading-row">
               <div>
@@ -1440,7 +1474,7 @@ function AdminApp() {
           </section>
         )}
 
-        {!isRecovery && (
+        {!isRecovery && activeAdminView === 'schedule' && (
           <section className="panel printable-schedule">
             <div className="section-heading admin-heading-row no-print">
               <div>
@@ -1510,7 +1544,7 @@ function AdminApp() {
           </section>
         )}
 
-        {canViewAccounting && (
+        {canViewAccounting && activeAdminView === 'accounting' && (
           <section className="panel printable-schedule">
             <div className="section-heading admin-heading-row no-print">
               <div>
@@ -1569,7 +1603,7 @@ function AdminApp() {
           </section>
         )}
 
-        {(isFull || isRecovery) && (
+        {(isFull || isRecovery) && activeAdminView === 'adminAccounts' && (
         <section className="panel admin-account-panel">
           <div className="section-heading">
             <p className="eyebrow">Admin account</p>
@@ -1667,6 +1701,7 @@ function AdminApp() {
         {message && <p className="success-message admin-message">{message}</p>}
         {error && <p className="error-message admin-message">{error}</p>}
 
+        {activeAdminView === 'adminAccounts' && (
         <section className="panel change-log">
           <div className="section-heading">
             <p className="eyebrow">Change log</p>
@@ -1680,6 +1715,7 @@ function AdminApp() {
             </div>
           ))}
         </section>
+        )}
       </section>
     </main>
   )
