@@ -18,13 +18,13 @@ function appUrl(path = '') {
 function SiteFooter() {
   return (
     <footer className="site-footer">
-      <div>
-        <strong>Downtown Ministries</strong>
-        <span>Meal Signup</span>
-      </div>
       <nav>
-        <a href={appUrl()}>Meal signup</a>
-        <a href={appUrl('reimbursement')}>Reimbursement</a>
+        <a href="https://www.downtownmin.org">Downtown Ministries of Goshen</a>
+        <span>|</span>
+        <a href="https://www.downtownmin.org/privacy-policy">Privacy Policy</a>
+        <span>|</span>
+        <a href="https://www.downtownmin.org/terms-of-service">Terms of Service</a>
+        <span>|</span>
         <a href={appUrl('admin')}>Admin</a>
       </nav>
     </footer>
