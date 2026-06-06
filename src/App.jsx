@@ -135,6 +135,7 @@ function MealSignupApp() {
   const [locations, setLocations] = useState(defaultLocations)
   const [selectedLocationId, setSelectedLocationId] = useState('goshen')
   const [selectedDates, setSelectedDates] = useState([])
+  const [selectedStartDate, setSelectedStartDate] = useState('')
   const [visibleMonth, setVisibleMonth] = useState(monthKeyForDate(todayDateKey()))
   const [mealFrequency, setMealFrequency] = useState('one-time')
   const [bookedKeys, setBookedKeys] = useState(initialBookedKeys)
@@ -216,6 +217,7 @@ function MealSignupApp() {
   const handleLocationSelect = (locationId) => {
     setSelectedLocationId(locationId)
     setSelectedDates([])
+    setSelectedStartDate('')
     setSubmitted(false)
   }
 
@@ -224,14 +226,14 @@ function MealSignupApp() {
       day.date >= date && !bookedKeys.includes(`${selectedLocation.id}:${day.date}`),
     )
 
-  const frequencyDatesFrom = (day) => {
+  const frequencyDatesFrom = (day, frequency = mealFrequency) => {
     const openDays = openDaysFrom(day.date)
-    if (mealFrequency === 'weekly') {
+    if (frequency === 'weekly') {
       return openDays
         .filter((candidate) => candidate.day === day.day && candidate.className === day.className)
         .map((candidate) => candidate.date)
     }
-    if (mealFrequency === 'biweekly') {
+    if (frequency === 'biweekly') {
       const startTime = new Date(`${day.date}T12:00:00`).getTime()
       return openDays
         .filter((candidate) => candidate.day === day.day && candidate.className === day.className)
@@ -241,7 +243,7 @@ function MealSignupApp() {
         })
         .map((candidate) => candidate.date)
     }
-    if (mealFrequency === 'monthly') {
+    if (frequency === 'monthly') {
       const datesByMonth = new Map()
       openDays
         .filter((candidate) => candidate.day === day.day && candidate.className === day.className)
@@ -254,15 +256,28 @@ function MealSignupApp() {
     return [day.date]
   }
 
+  const updateMealFrequency = (frequency) => {
+    setMealFrequency(frequency)
+    setSubmitted(false)
+    if (!selectedStartDate) return
+    const startDay = availableDays.find((day) => day.date === selectedStartDate)
+    if (!startDay || bookedKeys.includes(`${selectedLocation.id}:${startDay.date}`)) return
+    setSelectedDates(frequencyDatesFrom(startDay, frequency))
+  }
+
   const toggleDate = (date) => {
     if (bookedKeys.includes(`${selectedLocation.id}:${date}`)) return
     const day = availableDays.find((candidate) => candidate.date === date)
     if (!day) return
     setSubmitted(false)
+    setSelectedStartDate(day.date)
     if (mealFrequency !== 'one-time') {
       const datesToSelect = frequencyDatesFrom(day)
-      setSelectedDates((dates) => [...new Set([...dates, ...datesToSelect])].sort())
+      setSelectedDates(datesToSelect)
       return
+    }
+    if (selectedDates.includes(date) && selectedDates.length === 1) {
+      setSelectedStartDate('')
     }
     setSelectedDates((dates) =>
       dates.includes(date)
@@ -308,6 +323,7 @@ function MealSignupApp() {
       setBookedKeys(bookedKeysFromState(result.state))
       setUsingLiveData(true)
       setSelectedDates([])
+      setSelectedStartDate('')
       setSubmitted(true)
       setStatusMessage(
         'Signup saved. Confirmation messages and reminders are queued.',
@@ -323,6 +339,7 @@ function MealSignupApp() {
           ]),
         ])
         setSelectedDates([])
+        setSelectedStartDate('')
         setSubmitted(true)
         setStatusMessage(
           'Local prototype signup saved. Deploy to Firebase to queue messages.',
@@ -415,7 +432,7 @@ function MealSignupApp() {
                 <input
                   checked={mealFrequency === value}
                   name="mealFrequency"
-                  onChange={(event) => setMealFrequency(event.target.value)}
+                  onChange={(event) => updateMealFrequency(event.target.value)}
                   type="radio"
                   value={value}
                 />
