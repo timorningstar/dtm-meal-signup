@@ -138,6 +138,7 @@ function MealSignupApp() {
   const [selectedStartDate, setSelectedStartDate] = useState('')
   const [visibleMonth, setVisibleMonth] = useState(monthKeyForDate(todayDateKey()))
   const [mealFrequency, setMealFrequency] = useState('one-time')
+  const [mealFrequencyCount, setMealFrequencyCount] = useState('4')
   const [bookedKeys, setBookedKeys] = useState(initialBookedKeys)
   const [submitted, setSubmitted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -226,11 +227,14 @@ function MealSignupApp() {
       day.date >= date && !bookedKeys.includes(`${selectedLocation.id}:${day.date}`),
     )
 
-  const frequencyDatesFrom = (day, frequency = mealFrequency) => {
+  const recurringCount = Math.max(1, Number.parseInt(mealFrequencyCount, 10) || 1)
+
+  const frequencyDatesFrom = (day, frequency = mealFrequency, count = recurringCount) => {
     const openDays = openDaysFrom(day.date)
     if (frequency === 'weekly') {
       return openDays
         .filter((candidate) => candidate.day === day.day && candidate.className === day.className)
+        .slice(0, count)
         .map((candidate) => candidate.date)
     }
     if (frequency === 'biweekly') {
@@ -241,6 +245,7 @@ function MealSignupApp() {
           const diffDays = Math.round((new Date(`${candidate.date}T12:00:00`).getTime() - startTime) / 86400000)
           return diffDays % 14 === 0
         })
+        .slice(0, count)
         .map((candidate) => candidate.date)
     }
     if (frequency === 'monthly') {
@@ -251,7 +256,7 @@ function MealSignupApp() {
           const month = monthKeyForDate(candidate.date)
           if (!datesByMonth.has(month)) datesByMonth.set(month, candidate.date)
         })
-      return [...datesByMonth.values()]
+      return [...datesByMonth.values()].slice(0, count)
     }
     return [day.date]
   }
@@ -263,6 +268,16 @@ function MealSignupApp() {
     const startDay = availableDays.find((day) => day.date === selectedStartDate)
     if (!startDay || bookedKeys.includes(`${selectedLocation.id}:${startDay.date}`)) return
     setSelectedDates(frequencyDatesFrom(startDay, frequency))
+  }
+
+  const updateMealFrequencyCount = (countValue) => {
+    setMealFrequencyCount(countValue)
+    setSubmitted(false)
+    if (mealFrequency === 'one-time' || !selectedStartDate) return
+    const startDay = availableDays.find((day) => day.date === selectedStartDate)
+    if (!startDay || bookedKeys.includes(`${selectedLocation.id}:${startDay.date}`)) return
+    const count = Math.max(1, Number.parseInt(countValue, 10) || 1)
+    setSelectedDates(frequencyDatesFrom(startDay, mealFrequency, count))
   }
 
   const toggleDate = (date) => {
@@ -439,6 +454,17 @@ function MealSignupApp() {
                 {label}
               </label>
             ))}
+            {mealFrequency !== 'one-time' && (
+              <label className="frequency-count">
+                How many?
+                <input
+                  min="1"
+                  onChange={(event) => updateMealFrequencyCount(event.target.value)}
+                  type="number"
+                  value={mealFrequencyCount}
+                />
+              </label>
+            )}
           </fieldset>
 
           <div className="date-grid">

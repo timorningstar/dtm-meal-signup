@@ -332,6 +332,17 @@ button {
   width: 18px;
 }
 
+.frequency-picker .frequency-count {
+  grid-column: 1 / -1;
+  justify-content: flex-start;
+}
+
+.frequency-picker .frequency-count input {
+  height: auto;
+  max-width: 110px;
+  width: 100%;
+}
+
 .date-card {
   min-height: 126px;
   padding: 18px;
