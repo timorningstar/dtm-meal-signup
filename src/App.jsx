@@ -98,6 +98,20 @@ const formatDate = (date) =>
     day: 'numeric',
   }).format(new Date(`${date}T12:00:00`))
 
+const formatMonth = (monthKey) =>
+  new Intl.DateTimeFormat('en-US', {
+    month: 'long',
+    year: 'numeric',
+  }).format(new Date(`${monthKey}-01T12:00:00`))
+
+const monthKeyForDate = (date) => date.slice(0, 7)
+
+const addMonths = (monthKey, offset) => {
+  const cursor = new Date(`${monthKey}-01T12:00:00`)
+  cursor.setMonth(cursor.getMonth() + offset)
+  return cursor.toISOString().slice(0, 7)
+}
+
 const todayDateKey = () => {
   const today = new Date()
   return [
@@ -121,6 +135,8 @@ function MealSignupApp() {
   const [locations, setLocations] = useState(defaultLocations)
   const [selectedLocationId, setSelectedLocationId] = useState('goshen')
   const [selectedDates, setSelectedDates] = useState([])
+  const [visibleMonth, setVisibleMonth] = useState(monthKeyForDate(todayDateKey()))
+  const [mealFrequency, setMealFrequency] = useState('one-time')
   const [bookedKeys, setBookedKeys] = useState(initialBookedKeys)
   const [submitted, setSubmitted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -175,6 +191,18 @@ function MealSignupApp() {
     () => (selectedLocation.days || []).filter((day) => isMealDateUpcoming(day.date)),
     [selectedLocation],
   )
+  const availableMonths = useMemo(
+    () => [...new Set(availableDays.map((day) => monthKeyForDate(day.date)))],
+    [availableDays],
+  )
+  const displayMonth =
+    availableMonths.length && !availableMonths.includes(visibleMonth)
+      ? availableMonths[0]
+      : visibleMonth
+  const visibleDays = useMemo(
+    () => availableDays.filter((day) => monthKeyForDate(day.date) === displayMonth),
+    [availableDays, displayMonth],
+  )
 
   const selectedMeals = useMemo(
     () =>
@@ -191,9 +219,51 @@ function MealSignupApp() {
     setSubmitted(false)
   }
 
+  const openDaysFrom = (date) =>
+    availableDays.filter((day) =>
+      day.date >= date && !bookedKeys.includes(`${selectedLocation.id}:${day.date}`),
+    )
+
+  const frequencyDatesFrom = (day) => {
+    const openDays = openDaysFrom(day.date)
+    if (mealFrequency === 'weekly') {
+      return openDays
+        .filter((candidate) => candidate.day === day.day && candidate.className === day.className)
+        .map((candidate) => candidate.date)
+    }
+    if (mealFrequency === 'biweekly') {
+      const startTime = new Date(`${day.date}T12:00:00`).getTime()
+      return openDays
+        .filter((candidate) => candidate.day === day.day && candidate.className === day.className)
+        .filter((candidate) => {
+          const diffDays = Math.round((new Date(`${candidate.date}T12:00:00`).getTime() - startTime) / 86400000)
+          return diffDays % 14 === 0
+        })
+        .map((candidate) => candidate.date)
+    }
+    if (mealFrequency === 'monthly') {
+      const datesByMonth = new Map()
+      openDays
+        .filter((candidate) => candidate.day === day.day && candidate.className === day.className)
+        .forEach((candidate) => {
+          const month = monthKeyForDate(candidate.date)
+          if (!datesByMonth.has(month)) datesByMonth.set(month, candidate.date)
+        })
+      return [...datesByMonth.values()]
+    }
+    return [day.date]
+  }
+
   const toggleDate = (date) => {
     if (bookedKeys.includes(`${selectedLocation.id}:${date}`)) return
+    const day = availableDays.find((candidate) => candidate.date === date)
+    if (!day) return
     setSubmitted(false)
+    if (mealFrequency !== 'one-time') {
+      const datesToSelect = frequencyDatesFrom(day)
+      setSelectedDates((dates) => [...new Set([...dates, ...datesToSelect])].sort())
+      return
+    }
     setSelectedDates((dates) =>
       dates.includes(date)
         ? dates.filter((selectedDate) => selectedDate !== date)
@@ -315,8 +385,47 @@ function MealSignupApp() {
             </p>
           </div>
 
+          <div className="month-picker">
+            <button
+              aria-label="Previous month"
+              onClick={() => setVisibleMonth(addMonths(displayMonth, -1))}
+              type="button"
+            >
+              &lt;
+            </button>
+            <strong>{formatMonth(displayMonth)}</strong>
+            <button
+              aria-label="Next month"
+              onClick={() => setVisibleMonth(addMonths(displayMonth, 1))}
+              type="button"
+            >
+              &gt;
+            </button>
+          </div>
+
+          <fieldset className="frequency-picker">
+            <legend>How often would you like to provide a meal?</legend>
+            {[
+              ['one-time', 'One-time'],
+              ['weekly', 'Weekly'],
+              ['biweekly', 'Biweekly'],
+              ['monthly', 'Monthly'],
+            ].map(([value, label]) => (
+              <label key={value}>
+                <input
+                  checked={mealFrequency === value}
+                  name="mealFrequency"
+                  onChange={(event) => setMealFrequency(event.target.value)}
+                  type="radio"
+                  value={value}
+                />
+                {label}
+              </label>
+            ))}
+          </fieldset>
+
           <div className="date-grid">
-            {availableDays.map((day) => {
+            {visibleDays.map((day) => {
               const isBooked = bookedKeys.includes(
                 `${selectedLocation.id}:${day.date}`,
               )
@@ -340,6 +449,11 @@ function MealSignupApp() {
           {!availableDays.length && (
             <p className="empty-note">
               No upcoming meal dates are currently open for this location.
+            </p>
+          )}
+          {availableDays.length > 0 && !visibleDays.length && (
+            <p className="empty-note">
+              No available meal dates are set up for {formatMonth(displayMonth)}.
             </p>
           )}
         </section>
