@@ -14,6 +14,7 @@ const db = admin.firestore();
 const storage = admin.storage();
 const storageBucketName = process.env.STORAGE_BUCKET || "dtmcleaners.appspot.com";
 const SUPPORTED_APP_IDS = new Set(["mealSignup"]);
+const MEAL_CONFIRMATION_BCC = "volunteer@downtownmin.org";
 const passwordResetCollection = db.collection("passwordResets");
 const changeLinkCollection = db.collection("changeLinks");
 const adminSessionCollection = db.collection("adminSessions");
@@ -468,6 +469,7 @@ function buildMealEmails(signup, templates) {
       to: signup.email,
       subject: fillTemplate(templates.confirmation.subject, values),
       body: fillTemplate(templates.confirmation.body, values),
+      bcc: MEAL_CONFIRMATION_BCC,
       sendOn: new Date().toISOString(),
       type: "confirmation",
       status: "queued",
@@ -1639,6 +1641,7 @@ async function sendPostmarkEmail(message) {
   const token = process.env.POSTMARK_SERVER_TOKEN;
   const fromEmail = process.env.POSTMARK_FROM_EMAIL;
   if (!token || !fromEmail) throw new Error("Postmark environment variables are not configured.");
+  const bcc = message.bcc || (message.type === "confirmation" ? MEAL_CONFIRMATION_BCC : "");
 
   const response = await fetch("https://api.postmarkapp.com/email", {
     method: "POST",
@@ -1650,6 +1653,7 @@ async function sendPostmarkEmail(message) {
     body: JSON.stringify({
       From: fromEmail,
       To: message.to,
+      ...(bcc ? {Bcc: bcc} : {}),
       Subject: message.subject,
       TextBody: message.body,
       MessageStream: process.env.POSTMARK_MESSAGE_STREAM || "outbound",
