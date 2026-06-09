@@ -15,6 +15,10 @@ const storage = admin.storage();
 const storageBucketName = process.env.STORAGE_BUCKET || "dtmcleaners.appspot.com";
 const SUPPORTED_APP_IDS = new Set(["mealSignup"]);
 const MEAL_CONFIRMATION_BCC = "volunteer@downtownmin.org";
+const REIMBURSEMENT_NOTIFICATION_RECIPIENTS = [
+  "volunteer@downtownmin.org",
+  "accounting@downtownmin.org",
+];
 const passwordResetCollection = db.collection("passwordResets");
 const changeLinkCollection = db.collection("changeLinks");
 const adminSessionCollection = db.collection("adminSessions");
@@ -681,6 +685,30 @@ async function createReimbursementRequest(request, appId = "mealSignup") {
     });
   } catch (error) {
     return {ok: false, error: error.message};
+  }
+
+  try {
+    await sendPostmarkEmail({
+      to: REIMBURSEMENT_NOTIFICATION_RECIPIENTS.join(","),
+      subject: `New meal reimbursement request - ${fullName}`,
+      body: [
+        "A new meal reimbursement request was submitted.",
+        "",
+        `Request ID: ${requestId}`,
+        `Name: ${fullName}`,
+        `Class: ${className}`,
+        `Meal date: ${formatDateOnly(`${classDate}T12:00:00`)}`,
+        `Total requested: ${formatCurrency(totalAmount)}`,
+        `Receipt count: ${uploadedReceipts.length}`,
+        clean(body.notes) ? `Notes: ${clean(body.notes)}` : "",
+        "",
+        "Log in to the meal signup admin dashboard to review the reimbursement request.",
+        "https://dtm-meal-signup.web.app/admin",
+      ].filter(Boolean).join("\n"),
+      type: "reimbursement-notification",
+    });
+  } catch (error) {
+    logger.warn("Reimbursement notification email failed", {requestId, error: error.message});
   }
 
   return {
