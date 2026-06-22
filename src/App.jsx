@@ -224,7 +224,7 @@ function MealSignupApp() {
 
   const openDaysFrom = (date) =>
     availableDays.filter((day) =>
-      day.date >= date && !bookedKeys.includes(`${selectedLocation.id}:${day.date}`),
+      day.date >= date && !day.filled && !bookedKeys.includes(`${selectedLocation.id}:${day.date}`),
     )
 
   const recurringCount = Math.max(1, Number.parseInt(mealFrequencyCount, 10) || 1)
@@ -469,7 +469,7 @@ function MealSignupApp() {
 
           <div className="date-grid">
             {visibleDays.map((day) => {
-              const isBooked = bookedKeys.includes(
+              const isBooked = day.filled || bookedKeys.includes(
                 `${selectedLocation.id}:${day.date}`,
               )
               const isSelected = selectedDates.includes(day.date)
@@ -1258,6 +1258,7 @@ function AdminApp() {
                   day: '',
                   className: '',
                   expectedMealCount: '',
+                  filled: false,
                 },
               ],
             }
@@ -1870,6 +1871,16 @@ function AdminApp() {
                             value={day.expectedMealCount || ''}
                           />
                         </label>
+                        <label className="admin-filled-field">
+                          Filled
+                          <input
+                            checked={day.filled === true}
+                            onChange={(event) =>
+                              updateDate(location.id, index, { filled: event.target.checked })
+                            }
+                            type="checkbox"
+                          />
+                        </label>
                         <button
                           className="text-action"
                           onClick={() => removeDate(location.id, index)}
@@ -2219,7 +2230,7 @@ function scheduleRows(locations, signups = []) {
           expectedMealCount: mealCountForDay(day, location),
           preparer: signup
             ? [signup.fullName, signup.meal].filter(Boolean).join(' - ')
-            : '',
+            : day.filled ? 'Filled offline' : '',
         }
       }),
     )

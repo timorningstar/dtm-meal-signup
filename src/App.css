@@ -702,7 +702,13 @@ dd {
   align-items: end;
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(0, 150px) minmax(0, 130px) minmax(0, 130px) minmax(0, 1fr) minmax(0, 130px) auto;
+  grid-template-columns: minmax(0, 150px) minmax(0, 130px) minmax(0, 130px) minmax(0, 1fr) minmax(0, 130px) 70px auto;
+}
+
+.admin-filled-field input {
+  height: 22px;
+  margin: 0;
+  width: 22px;
 }
 
 .bulk-date-row {

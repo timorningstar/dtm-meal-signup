@@ -404,7 +404,7 @@ async function createMealSignup(request, appId = "mealSignup") {
 
     const availableDates = new Map(
       location.days
-        .filter((day) => isMealDateUpcoming(day.date))
+        .filter((day) => isMealDateUpcoming(day.date) && !day.filled)
         .map((day) => [day.date, day]),
     );
     const unavailable = dates.filter((date) => {
@@ -1099,6 +1099,7 @@ function sanitizeMealLocations(locations) {
           time: clean(day.time) || "5:00 PM",
           day: weekdayForDate(day.date),
           className: clean(day.className),
+          filled: day.filled === true,
           expectedMealCount: Math.max(
             1,
             Number.parseInt(day.expectedMealCount || day.servingSize || location.servingSize, 10) || 1,
