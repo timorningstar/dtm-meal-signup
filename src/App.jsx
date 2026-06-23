@@ -1619,6 +1619,33 @@ function AdminApp() {
     }
   }
 
+  const removeMealPreparer = async (row) => {
+    if (
+      !window.confirm(`Remove ${row.preparerName || 'this meal preparer'} from ${formatDate(row.date)} and make the date available again?`) ||
+      !window.confirm('Please confirm again. This will reopen the meal date for public signup.')
+    ) {
+      return
+    }
+    setError('')
+    setMessage('')
+    try {
+      const response = await fetch(apiUrl(`/api/admin-remove-meal-preparer?app=${API_APP_ID}`), {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ locationId: row.locationId, date: row.date }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || 'Meal preparer could not be removed.')
+      }
+      setAdminData(payload)
+      setLocations(payload.locations || [])
+      setMessage('Meal preparer removed. The date is available again.')
+    } catch (removeError) {
+      setError(removeError.message)
+    }
+  }
+
   const logout = () => {
     sessionStorage.removeItem(ADMIN_TOKEN_KEY)
     setToken('')
@@ -2069,6 +2096,7 @@ function AdminApp() {
                   <th>Expected #</th>
                   <th>Meal preparer</th>
                   <th>Address</th>
+                  {canManageSchedule && <th>Action</th>}
                 </tr>
               </thead>
               <tbody>
@@ -2082,6 +2110,21 @@ function AdminApp() {
                     <td>{row.expectedMealCount || ''}</td>
                     <td>{row.preparer || 'Open'}</td>
                     <td>{row.address}</td>
+                    {canManageSchedule && (
+                      <td>
+                        {row.signupId ? (
+                          <button
+                            className="text-action"
+                            onClick={() => removeMealPreparer(row)}
+                            type="button"
+                          >
+                            Remove preparer
+                          </button>
+                        ) : (
+                          ''
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -2330,6 +2373,8 @@ function scheduleRows(locations, signups = []) {
           locationId: location.id,
           locationName: location.name,
           address: location.address,
+          signupId: signup?.id || '',
+          preparerName: signup?.fullName || '',
           expectedMealCount: mealCountForDay(day, location),
           preparer: signup
             ? [signup.fullName, signup.meal].filter(Boolean).join(' - ')

@@ -764,6 +764,10 @@ dd {
   text-transform: uppercase;
 }
 
+.schedule-table .text-action {
+  white-space: nowrap;
+}
+
 .regular-admins {
   border-top: 1px solid #d7dee6;
   margin-top: 24px;

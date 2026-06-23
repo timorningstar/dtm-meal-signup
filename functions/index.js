@@ -1093,6 +1093,49 @@ async function adminState(appId, session) {
   };
 }
 
+async function removeMealPreparer(request, session) {
+  const locationId = clean(request.body?.locationId);
+  const mealDate = clean(request.body?.date);
+  if (!locationId || !/^\d{4}-\d{2}-\d{2}$/.test(mealDate)) {
+    return {ok: false, error: "Choose a valid meal date to reopen."};
+  }
+
+  const state = await readState(session.appId);
+  const signup = (state.signups || []).find((item) =>
+    item.locationId === locationId && (item.dates || []).includes(mealDate),
+  );
+  if (!signup) {
+    return {ok: false, error: "No meal preparer was found for that date."};
+  }
+
+  const existingRequestSnapshot = await db.collection("reimbursementRequests")
+    .where("signupId", "==", signup.id)
+    .where("mealDate", "==", mealDate)
+    .limit(1)
+    .get();
+  if (!existingRequestSnapshot.empty) {
+    return {ok: false, error: "This meal already has a reimbursement request. Handle the reimbursement before reopening the date."};
+  }
+
+  const providerName = clean(signup.fullName) || "Meal preparer";
+  signup.dates = (signup.dates || []).filter((date) => date !== mealDate);
+  signup.dateDetails = (signup.dateDetails || []).filter((detail) => detail.date !== mealDate);
+  signup.reimbursedDates = (signup.reimbursedDates || []).filter((date) => date !== mealDate);
+  if (!signup.dates.length) {
+    state.signups = (state.signups || []).filter((item) => item.id !== signup.id);
+  }
+  state.emails = (state.emails || []).filter((message) =>
+    !(message.signupId === signup.id && message.id && message.id.includes(mealDate) && !message.sentAt),
+  );
+  state.textMessages = (state.textMessages || []).filter((message) =>
+    !(message.signupId === signup.id && message.id && message.id.includes(mealDate) && !message.sentAt),
+  );
+
+  logStateChange(state, session.username, "Remove meal preparer", `${session.username} reopened ${mealDate} by removing ${providerName}.`);
+  await writeState(state, session.appId);
+  return adminState(session.appId, session);
+}
+
 async function changeOwnAdminPassword(request, session) {
   const password = clean(request.body?.password);
   if (password.length < 6) return {ok: false, error: "New password must be at least 6 characters."};
@@ -1490,6 +1533,13 @@ exports.mealApi = onRequest({cors: true, invoker: "public", secrets: providerSec
     if (request.method === "POST" && path === "/admin-reminders") {
       const session = await requireAdmin(request, appId, ["full", "schedule"]);
       const result = await updateReminderTemplates(request, session);
+      sendJson(response, result.ok ? 200 : 400, result);
+      return;
+    }
+
+    if (request.method === "POST" && path === "/admin-remove-meal-preparer") {
+      const session = await requireAdmin(request, appId, ["full", "schedule"]);
+      const result = await removeMealPreparer(request, session);
       sendJson(response, result.ok ? 200 : 400, result);
       return;
     }
