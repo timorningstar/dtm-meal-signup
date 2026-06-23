@@ -640,6 +640,10 @@ async function createReimbursementRequest(request, appId = "mealSignup") {
   if ((initialSignup.reimbursedDates || []).includes(chosenMeal.mealDate)) {
     return {ok: false, error: "A reimbursement request has already been submitted for that meal date."};
   }
+  const initialReimbursedKeys = await reimbursedMealKeys();
+  if (initialReimbursedKeys.has(`${chosenMeal.signupId}:${chosenMeal.mealDate}`)) {
+    return {ok: false, error: "A reimbursement request has already been submitted for that meal date."};
+  }
   const fullName = clean(initialSignup.fullName);
   const providerAddress = clean(initialSignup.addressLine);
   const className = clean(initialDateDetail?.className || initialSignup.locationName);
@@ -687,6 +691,14 @@ async function createReimbursementRequest(request, appId = "mealSignup") {
         throw new Error("That provided meal could not be found.");
       }
       if ((signup.reimbursedDates || []).includes(chosenMeal.mealDate)) {
+        throw new Error("A reimbursement request has already been submitted for that meal date.");
+      }
+      const existingRequestSnapshot = await db.collection("reimbursementRequests")
+        .where("signupId", "==", chosenMeal.signupId)
+        .where("mealDate", "==", chosenMeal.mealDate)
+        .limit(1)
+        .get();
+      if (!existingRequestSnapshot.empty) {
         throw new Error("A reimbursement request has already been submitted for that meal date.");
       }
       signup.reimbursedDates = [...new Set([...(signup.reimbursedDates || []), chosenMeal.mealDate])];
@@ -761,7 +773,8 @@ async function requestReimbursementLink(request, appId = "mealSignup") {
   }
 
   const state = await readState(mealAppId);
-  const meals = reimbursementMealsForEmail(state, email);
+  const reimbursedKeys = await reimbursedMealKeys();
+  const meals = reimbursementMealsForEmail(state, email, reimbursedKeys);
   if (!meals.length) {
     return {ok: true};
   }
@@ -802,7 +815,8 @@ async function authenticateReimbursementLink(request, appId = "mealSignup") {
   if (!link.ok) return link;
 
   const state = await readState(link.appId);
-  const meals = reimbursementMealsForEmail(state, link.email);
+  const reimbursedKeys = await reimbursedMealKeys();
+  const meals = reimbursementMealsForEmail(state, link.email, reimbursedKeys);
   return {ok: true, email: link.email, meals};
 }
 
@@ -825,13 +839,22 @@ async function validateReimbursementLink(token, appId = "mealSignup") {
   return {ok: true, appId: linkAppId, email: normalizeEmail(link.email)};
 }
 
-function reimbursementMealsForEmail(state, email) {
+async function reimbursedMealKeys() {
+  const snapshot = await db.collection("reimbursementRequests").get();
+  return new Set(snapshot.docs.map((doc) => {
+    const data = doc.data() || {};
+    return `${clean(data.signupId)}:${clean(data.mealDate)}`;
+  }).filter((key) => !key.startsWith(":") && !key.endsWith(":")));
+}
+
+function reimbursementMealsForEmail(state, email, reimbursedKeys = new Set()) {
   const normalizedEmail = normalizeEmail(email);
   return (state.signups || [])
     .filter((signup) => normalizeEmail(signup.email) === normalizedEmail)
     .flatMap((signup) =>
       (signup.dateDetails || [])
         .filter((detail) => !(signup.reimbursedDates || []).includes(detail.date))
+        .filter((detail) => !reimbursedKeys.has(`${signup.id}:${detail.date}`))
         .map((detail) => ({
           id: `${signup.id}:${detail.date}`,
           signupId: signup.id,
