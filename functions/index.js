@@ -1172,6 +1172,8 @@ async function listReimbursementRequests() {
       fullName: data.fullName || "",
       className: data.className || "",
       classDate: data.classDate || "",
+      signupId: data.signupId || "",
+      mealDate: data.mealDate || "",
       totalAmount: data.totalAmount || 0,
       status: data.status || "pending",
       files: [
@@ -1180,6 +1182,50 @@ async function listReimbursementRequests() {
       ].filter(Boolean),
     };
   }));
+}
+
+async function deleteReimbursementRequest(request, session) {
+  const requestId = clean(request.body?.id);
+  if (!requestId) return {ok: false, error: "Choose a reimbursement request to delete."};
+
+  const requestRef = db.collection("reimbursementRequests").doc(requestId);
+  const requestDoc = await requestRef.get();
+  if (!requestDoc.exists) return {ok: false, error: "Reimbursement request was not found."};
+
+  const data = requestDoc.data() || {};
+  const signupId = clean(data.signupId);
+  const mealDate = clean(data.mealDate);
+  const state = await readState(session.appId);
+  const signup = (state.signups || []).find((item) => item.id === signupId);
+  if (signup && mealDate) {
+    signup.reimbursedDates = (signup.reimbursedDates || []).filter((date) => date !== mealDate);
+    signup.reimbursementRequestIds = (signup.reimbursementRequestIds || []).filter((id) => id !== requestId);
+  }
+
+  await deleteReimbursementFiles(data, requestId);
+  await requestRef.delete();
+  logStateChange(state, session.username, "Delete reimbursement request", `${session.username} deleted reimbursement request ${requestId}.`);
+  await writeState(state, session.appId);
+  return adminState(session.appId, session);
+}
+
+async function deleteReimbursementFiles(data, requestId) {
+  const storagePaths = [
+    data.fileMode === "storage" ? data.pdfPath : "",
+    ...(Array.isArray(data.receipts) ? data.receipts.map((receipt) => receipt.storagePath) : []),
+  ].filter(Boolean);
+  await Promise.all(storagePaths.map(async (path) => {
+    try {
+      await storage.bucket(storageBucketName).file(path).delete({ignoreNotFound: true});
+    } catch (error) {
+      logger.warn("Could not delete reimbursement storage file", {path, error: error.message});
+    }
+  }));
+
+  if (data.fileMode === "firestore") {
+    const filesSnapshot = await db.collection("reimbursementRequests").doc(requestId).collection("files").get();
+    await Promise.all(filesSnapshot.docs.map((doc) => doc.ref.delete()));
+  }
 }
 
 async function signedStorageUrl(path) {
@@ -1540,6 +1586,13 @@ exports.mealApi = onRequest({cors: true, invoker: "public", secrets: providerSec
     if (request.method === "POST" && path === "/admin-remove-meal-preparer") {
       const session = await requireAdmin(request, appId, ["full", "schedule"]);
       const result = await removeMealPreparer(request, session);
+      sendJson(response, result.ok ? 200 : 400, result);
+      return;
+    }
+
+    if (request.method === "POST" && path === "/admin-delete-reimbursement") {
+      const session = await requireAdmin(request, appId, ["full"]);
+      const result = await deleteReimbursementRequest(request, session);
       sendJson(response, result.ok ? 200 : 400, result);
       return;
     }

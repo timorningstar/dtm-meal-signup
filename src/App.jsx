@@ -1646,6 +1646,33 @@ function AdminApp() {
     }
   }
 
+  const deleteReimbursementRequest = async (request) => {
+    if (
+      !window.confirm(`Delete reimbursement request for ${request.fullName || 'this provider'} on ${request.classDate || 'this date'}?`) ||
+      !window.confirm('Please confirm again. This removes the request and clears the meal reimbursement marker.')
+    ) {
+      return
+    }
+    setError('')
+    setMessage('')
+    try {
+      const response = await fetch(apiUrl(`/api/admin-delete-reimbursement?app=${API_APP_ID}`), {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ id: request.id }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || 'Reimbursement request could not be deleted.')
+      }
+      setAdminData(payload)
+      setLocations(payload.locations || [])
+      setMessage('Reimbursement request deleted.')
+    } catch (deleteError) {
+      setError(deleteError.message)
+    }
+  }
+
   const logout = () => {
     sessionStorage.removeItem(ADMIN_TOKEN_KEY)
     setToken('')
@@ -2218,6 +2245,7 @@ function AdminApp() {
                   <th>Total</th>
                   <th>Status</th>
                   <th className="no-print">Files</th>
+                  {isFull && <th className="no-print">Action</th>}
                 </tr>
               </thead>
               <tbody>
@@ -2236,6 +2264,17 @@ function AdminApp() {
                         </a>
                       ))}
                     </td>
+                    {isFull && (
+                      <td className="no-print">
+                        <button
+                          className="text-action"
+                          onClick={() => deleteReimbursementRequest(request)}
+                          type="button"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
