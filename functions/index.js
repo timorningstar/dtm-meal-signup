@@ -21,6 +21,7 @@ const REIMBURSEMENT_NOTIFICATION_RECIPIENTS = [
 ];
 const passwordResetCollection = db.collection("passwordResets");
 const changeLinkCollection = db.collection("changeLinks");
+const reimbursementLinkCollection = db.collection("reimbursementLinks");
 const adminSessionCollection = db.collection("adminSessions");
 const postmarkServerToken = defineSecret("POSTMARK_SERVER_TOKEN");
 const postmarkFromEmail = defineSecret("POSTMARK_FROM_EMAIL");
@@ -367,16 +368,18 @@ async function readState(appId = "current") {
   return normalizeState(snapshot.data().state, appId);
 }
 
+function appBaseUrlFromRequest(request) {
+  return clean(process.env.APP_BASE_URL || request.get("origin") || `${request.get("x-forwarded-proto") || "https"}://${request.get("host")}`)
+    .replace(/\/api\/?.*$/, "")
+    .replace(/\/$/, "");
+}
+
 function publicState(state) {
   return {
     locations: state.locations || [],
     signups: (state.signups || []).map((signup) => ({
-      id: signup.id,
       locationId: signup.locationId,
-      locationName: signup.locationName,
       dates: Array.isArray(signup.dates) ? signup.dates : [],
-      dateDetails: Array.isArray(signup.dateDetails) ? signup.dateDetails : [],
-      reimbursedDates: Array.isArray(signup.reimbursedDates) ? signup.reimbursedDates : [],
     })),
   };
 }
@@ -601,9 +604,13 @@ async function createReimbursementRequest(request, appId = "mealSignup") {
   const body = request.body || {};
   const receipts = Array.isArray(body.receipts) ? body.receipts : [];
   const chosenMeal = parseReimbursementMealId(body.signupId);
+  const link = await validateReimbursementLink(body.reimbursementToken, mealAppId);
 
   if (!chosenMeal.signupId || !chosenMeal.mealDate) {
     return {ok: false, error: "Choose your provided meal before submitting reimbursement."};
+  }
+  if (!link.ok) {
+    return {ok: false, error: link.error};
   }
   if (!receipts.length) {
     return {ok: false, error: "Upload at least one receipt."};
@@ -626,6 +633,9 @@ async function createReimbursementRequest(request, appId = "mealSignup") {
   const initialDateDetail = (initialSignup?.dateDetails || []).find((detail) => detail.date === chosenMeal.mealDate);
   if (!initialSignup || !(initialSignup.dates || []).includes(chosenMeal.mealDate)) {
     return {ok: false, error: "That provided meal could not be found."};
+  }
+  if (normalizeEmail(initialSignup.email) !== link.email) {
+    return {ok: false, error: "That meal is not available from this reimbursement link."};
   }
   if ((initialSignup.reimbursedDates || []).includes(chosenMeal.mealDate)) {
     return {ok: false, error: "A reimbursement request has already been submitted for that meal date."};
@@ -741,6 +751,98 @@ async function createReimbursementRequest(request, appId = "mealSignup") {
     pdfPath,
     fileMode,
   };
+}
+
+async function requestReimbursementLink(request, appId = "mealSignup") {
+  const mealAppId = appId === "mealSignup" ? appId : "mealSignup";
+  const email = normalizeEmail(request.body?.email);
+  if (!isValidEmail(email)) {
+    return {ok: false, error: "Enter the email address used for the meal signup."};
+  }
+
+  const state = await readState(mealAppId);
+  const meals = reimbursementMealsForEmail(state, email);
+  if (!meals.length) {
+    return {ok: true};
+  }
+
+  const rawToken = crypto.randomBytes(32).toString("base64url");
+  const tokenHash = hashToken(rawToken);
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const reimbursementUrl = `${appBaseUrlFromRequest(request)}/reimbursement?token=${encodeURIComponent(rawToken)}`;
+
+  await reimbursementLinkCollection.add({
+    tokenHash,
+    appId: mealAppId,
+    email,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    expiresAt: admin.firestore.Timestamp.fromDate(expiresAt),
+    lastUsedAt: null,
+  });
+
+  await sendPostmarkEmail({
+    to: email,
+    subject: "Submit your Downtown Ministries meal reimbursement",
+    body: [
+      "Use this private link to submit receipts for the meals connected to this email address:",
+      "",
+      reimbursementUrl,
+      "",
+      "This link expires in 24 hours. If you did not request this link, you can ignore this email.",
+    ].join("\n"),
+    type: "reimbursement-link",
+  });
+
+  return {ok: true};
+}
+
+async function authenticateReimbursementLink(request, appId = "mealSignup") {
+  const mealAppId = appId === "mealSignup" ? appId : "mealSignup";
+  const link = await validateReimbursementLink(request.body?.token, mealAppId);
+  if (!link.ok) return link;
+
+  const state = await readState(link.appId);
+  const meals = reimbursementMealsForEmail(state, link.email);
+  return {ok: true, email: link.email, meals};
+}
+
+async function validateReimbursementLink(token, appId = "mealSignup") {
+  const rawToken = clean(token);
+  if (!rawToken) return {ok: false, error: "Use the reimbursement email link to open this page."};
+
+  const tokenHash = hashToken(rawToken);
+  const snapshot = await reimbursementLinkCollection.where("tokenHash", "==", tokenHash).limit(1).get();
+  if (snapshot.empty) return {ok: false, error: "This reimbursement link is invalid or expired."};
+
+  const linkDoc = snapshot.docs[0];
+  const link = linkDoc.data();
+  const linkAppId = SUPPORTED_APP_IDS.has(link.appId) ? link.appId : appId;
+  if (!link.expiresAt || link.expiresAt.toMillis() < Date.now()) {
+    return {ok: false, error: "This reimbursement link is invalid or expired."};
+  }
+
+  await linkDoc.ref.update({lastUsedAt: admin.firestore.FieldValue.serverTimestamp()});
+  return {ok: true, appId: linkAppId, email: normalizeEmail(link.email)};
+}
+
+function reimbursementMealsForEmail(state, email) {
+  const normalizedEmail = normalizeEmail(email);
+  return (state.signups || [])
+    .filter((signup) => normalizeEmail(signup.email) === normalizedEmail)
+    .flatMap((signup) =>
+      (signup.dateDetails || [])
+        .filter((detail) => !(signup.reimbursedDates || []).includes(detail.date))
+        .map((detail) => ({
+          id: `${signup.id}:${detail.date}`,
+          signupId: signup.id,
+          date: detail.date,
+          className: detail.className || signup.locationName || "",
+          locationName: signup.locationName || "",
+          time: detail.time || "",
+          expectedMealCount: detail.expectedMealCount || "",
+        })),
+    )
+    .sort((a, b) => a.date.localeCompare(b.date) || a.locationName.localeCompare(b.locationName));
 }
 
 function parseReimbursementMealId(value) {
@@ -1321,6 +1423,18 @@ exports.mealApi = onRequest({cors: true, invoker: "public", secrets: providerSec
     if (request.method === "POST" && path === "/reimbursement") {
       const result = await createReimbursementRequest(request, appId);
       sendJson(response, result.ok ? 200 : 400, result);
+      return;
+    }
+
+    if (request.method === "POST" && path === "/request-reimbursement-link") {
+      const result = await requestReimbursementLink(request, appId);
+      sendJson(response, result.ok ? 200 : 400, result);
+      return;
+    }
+
+    if (request.method === "POST" && path === "/authenticate-reimbursement-link") {
+      const result = await authenticateReimbursementLink(request, appId);
+      sendJson(response, result.ok ? 200 : 401, result);
       return;
     }
 

@@ -270,6 +270,18 @@ button {
   grid-row: 1 / span 2;
 }
 
+.reimbursement-access-panel {
+  grid-column: 1 / -1;
+  max-width: 720px;
+}
+
+.inline-request-form {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+  max-width: 520px;
+}
+
 .date-grid {
   display: grid;
   gap: 12px;

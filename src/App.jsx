@@ -692,6 +692,13 @@ function MealSignupApp() {
 }
 
 function ReimbursementApp() {
+  const initialReimbursementToken = new URLSearchParams(window.location.search).get('token') || ''
+  const [reimbursementToken] = useState(initialReimbursementToken)
+  const [emailRequest, setEmailRequest] = useState('')
+  const [emailLinkSent, setEmailLinkSent] = useState(false)
+  const [requestingLink, setRequestingLink] = useState(false)
+  const [tokenLoading, setTokenLoading] = useState(Boolean(initialReimbursementToken))
+  const [tokenReady, setTokenReady] = useState(false)
   const [form, setForm] = useState({
     signupId: '',
     fullName: '',
@@ -719,29 +726,73 @@ function ReimbursementApp() {
   }
 
   useEffect(() => {
+    if (!reimbursementToken) return undefined
     let active = true
 
-    async function loadProvidedMeals() {
+    async function authenticateLink() {
+      setTokenLoading(true)
+      setError('')
       try {
-        const response = await fetch(API_STATE_URL, {
-          headers: { Accept: 'application/json' },
-          cache: 'no-store',
+        const response = await fetch(apiUrl(`/api/authenticate-reimbursement-link?app=${API_APP_ID}`), {
+          method: 'POST',
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ token: reimbursementToken }),
         })
         const payload = await response.json().catch(() => ({}))
-        if (!response.ok || !payload.state || !active) return
-        setAvailableMeals(providedMealOptions(payload.state))
+        if (!active) return
+        if (!response.ok || !payload.ok) {
+          throw new Error(payload.error || 'This reimbursement link could not be opened.')
+        }
+        setAvailableMeals(providedMealOptions(payload.meals || []))
+        setTokenReady(true)
       } catch (loadError) {
-        console.warn('Could not load provided meals for reimbursement.', loadError)
+        if (active) setError(loadError.message)
+      } finally {
+        if (active) setTokenLoading(false)
       }
     }
 
-    loadProvidedMeals()
+    authenticateLink()
     return () => {
       active = false
     }
-  }, [])
+  }, [reimbursementToken])
 
   const selectedMeal = availableMeals.find((meal) => meal.id === form.signupId)
+
+  const requestReimbursementLink = async (event) => {
+    event.preventDefault()
+    if (!emailRequest) {
+      setError('Enter the email address used for the meal signup.')
+      return
+    }
+    setRequestingLink(true)
+    setEmailLinkSent(false)
+    setError('')
+    setResult(null)
+    try {
+      const response = await fetch(apiUrl(`/api/request-reimbursement-link?app=${API_APP_ID}`), {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email: emailRequest }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || 'The reimbursement link could not be sent.')
+      }
+      setEmailLinkSent(true)
+    } catch (requestError) {
+      setError(requestError.message)
+    } finally {
+      setRequestingLink(false)
+    }
+  }
 
   const chooseProvidedMeal = (event) => {
     const signupId = event.target.value
@@ -823,7 +874,7 @@ function ReimbursementApp() {
           Accept: 'application/json',
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ ...form, receipts: receiptPayload }),
+        body: JSON.stringify({ ...form, reimbursementToken, receipts: receiptPayload }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || !payload.ok) {
@@ -857,14 +908,68 @@ function ReimbursementApp() {
         </div>
       </header>
 
-      <form className="reimbursement-layout" onSubmit={handleSubmit}>
+      <form
+        className="reimbursement-layout"
+        onSubmit={tokenReady ? handleSubmit : requestReimbursementLink}
+      >
+        {!tokenReady && (
+        <section className="panel reimbursement-access-panel">
+          <div className="section-heading">
+            <p className="eyebrow">Step 1</p>
+            <h2>Find Your Meals</h2>
+          </div>
+
+          {tokenLoading ? (
+            <p className="empty-note">Opening your reimbursement link...</p>
+          ) : (
+            <>
+              <p className="empty-note">
+                Enter the email address you used when signing up to provide a meal.
+                We will send a private link showing only your meals.
+              </p>
+              <div className="inline-request-form">
+                <label>
+                  Email address
+                  <input
+                    onChange={(event) => {
+                      setEmailRequest(event.target.value)
+                      setEmailLinkSent(false)
+                      setError('')
+                    }}
+                    required
+                    type="email"
+                    value={emailRequest}
+                  />
+                </label>
+                <button
+                  className="primary-action"
+                  disabled={requestingLink}
+                  onClick={requestReimbursementLink}
+                  type="button"
+                >
+                  {requestingLink ? 'Sending link...' : 'Send reimbursement link'}
+                </button>
+              </div>
+              {emailLinkSent && (
+                <p className="success-message">
+                  If that email matches a meal signup, a reimbursement link has been sent.
+                </p>
+              )}
+            </>
+          )}
+          {error && <p className="error-message">{error}</p>}
+        </section>
+        )}
+
+        {tokenReady && (
+        <>
         <section className="panel">
           <div className="section-heading">
             <p className="eyebrow">Step 1</p>
             <h2>Choose Your Provided Meal</h2>
           </div>
 
-          {!result && (
+          {!result && availableMeals.length > 0 && (
             <label>
               Provided meal
               <select
@@ -881,6 +986,12 @@ function ReimbursementApp() {
                 ))}
               </select>
             </label>
+          )}
+
+          {!result && availableMeals.length === 0 && (
+            <p className="empty-note">
+              No unreimbursed meal dates were found for this reimbursement link.
+            </p>
           )}
 
           {selectedMeal && (
@@ -1026,6 +1137,8 @@ function ReimbursementApp() {
           )}
           {error && <p className="error-message">{error}</p>}
         </aside>
+        </>
+        )}
       </form>
       <SiteFooter />
     </main>
@@ -1052,27 +1165,17 @@ function readFileAsDataUrl(file) {
   })
 }
 
-function providedMealOptions(state) {
-  const signups = Array.isArray(state?.signups) ? state.signups : []
-  return signups
-    .flatMap((signup) =>
-      (signup.dateDetails || [])
-        .filter((detail) => !(signup.reimbursedDates || []).includes(detail.date))
-        .map((detail) => ({
-          id: `${signup.id}:${detail.date}`,
-          signupId: signup.id,
-          date: detail.date,
-          className: detail.className || signup.locationName || '',
-          locationName: signup.locationName || '',
-          time: detail.time || '',
-          label: [
-            formatDate(detail.date),
-            signup.locationName,
-            detail.className,
-            detail.time,
-          ].filter(Boolean).join(' - '),
-        })),
-    )
+function providedMealOptions(meals) {
+  return (Array.isArray(meals) ? meals : [])
+    .map((meal) => ({
+      ...meal,
+      label: [
+        formatDate(meal.date),
+        meal.locationName,
+        meal.className,
+        meal.time,
+      ].filter(Boolean).join(' - '),
+    }))
     .sort((a, b) => a.date.localeCompare(b.date) || a.locationName.localeCompare(b.locationName))
 }
 
