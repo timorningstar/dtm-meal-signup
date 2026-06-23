@@ -367,6 +367,20 @@ async function readState(appId = "current") {
   return normalizeState(snapshot.data().state, appId);
 }
 
+function publicState(state) {
+  return {
+    locations: state.locations || [],
+    signups: (state.signups || []).map((signup) => ({
+      id: signup.id,
+      locationId: signup.locationId,
+      locationName: signup.locationName,
+      dates: Array.isArray(signup.dates) ? signup.dates : [],
+      dateDetails: Array.isArray(signup.dateDetails) ? signup.dateDetails : [],
+      reimbursedDates: Array.isArray(signup.reimbursedDates) ? signup.reimbursedDates : [],
+    })),
+  };
+}
+
 async function writeState(nextState, appId = "current") {
   const stateRef = stateRefFor(appId);
   const normalized = normalizeState(nextState, appId);
@@ -587,15 +601,9 @@ async function createReimbursementRequest(request, appId = "mealSignup") {
   const body = request.body || {};
   const receipts = Array.isArray(body.receipts) ? body.receipts : [];
   const chosenMeal = parseReimbursementMealId(body.signupId);
-  const fullName = clean(body.fullName);
-  const className = clean(body.className);
-  const classDate = clean(body.classDate);
 
   if (!chosenMeal.signupId || !chosenMeal.mealDate) {
     return {ok: false, error: "Choose your provided meal before submitting reimbursement."};
-  }
-  if (!fullName || !className || !classDate) {
-    return {ok: false, error: "Name, class, and date are required."};
   }
   if (!receipts.length) {
     return {ok: false, error: "Upload at least one receipt."};
@@ -613,6 +621,20 @@ async function createReimbursementRequest(request, appId = "mealSignup") {
   }
   const totalAmount = normalizedReceipts.reduce((total, receipt) => total + receipt.amount, 0);
   const createdAt = new Date().toISOString();
+  const initialState = await readState(mealAppId);
+  const initialSignup = (initialState.signups || []).find((item) => item.id === chosenMeal.signupId);
+  const initialDateDetail = (initialSignup?.dateDetails || []).find((detail) => detail.date === chosenMeal.mealDate);
+  if (!initialSignup || !(initialSignup.dates || []).includes(chosenMeal.mealDate)) {
+    return {ok: false, error: "That provided meal could not be found."};
+  }
+  if ((initialSignup.reimbursedDates || []).includes(chosenMeal.mealDate)) {
+    return {ok: false, error: "A reimbursement request has already been submitted for that meal date."};
+  }
+  const fullName = clean(initialSignup.fullName);
+  const providerAddress = clean(initialSignup.addressLine);
+  const className = clean(initialDateDetail?.className || initialSignup.locationName);
+  const classDate = chosenMeal.mealDate;
+
   const folder = `reimbursements/pending/${requestId}`;
   const bucket = storage.bucket(storageBucketName);
   const pdfBuffer = await buildReimbursementPdf({
@@ -672,7 +694,7 @@ async function createReimbursementRequest(request, appId = "mealSignup") {
         signupId: chosenMeal.signupId,
         mealDate: chosenMeal.mealDate,
         fullName,
-        providerAddress: clean(body.providerAddress),
+        providerAddress,
         className,
         classDate,
         notes: clean(body.notes),
@@ -1286,17 +1308,7 @@ exports.mealApi = onRequest({cors: true, invoker: "public", secrets: providerSec
     const appId = appIdFromRequest(request);
 
     if (request.method === "GET" && (path === "/state" || path === "/")) {
-      sendJson(response, 200, {state: await readState(appId), app: appId});
-      return;
-    }
-
-    if (request.method === "POST" && path === "/state") {
-      const body = request.body || {};
-      if (!body.state || typeof body.state !== "object") {
-        sendJson(response, 400, {error: "Missing state payload."});
-        return;
-      }
-      sendJson(response, 200, {state: await writeState(body.state, appId), app: appId});
+      sendJson(response, 200, {state: publicState(await readState(appId)), app: appId});
       return;
     }
 

@@ -751,8 +751,8 @@ function ReimbursementApp() {
     setForm((current) => ({
       ...current,
       signupId,
-      fullName: meal?.fullName || '',
-      providerAddress: meal?.providerAddress || '',
+      fullName: '',
+      providerAddress: '',
       className: meal?.className || '',
       classDate: meal?.date || '',
     }))
@@ -886,16 +886,16 @@ function ReimbursementApp() {
           {selectedMeal && (
             <dl className="selected-meal-details">
               <div>
-                <dt>Name of meal provider</dt>
-                <dd>{selectedMeal.fullName}</dd>
-              </div>
-              <div>
-                <dt>Full address</dt>
-                <dd>{selectedMeal.providerAddress || 'No mailing address on file'}</dd>
+                <dt>Location</dt>
+                <dd>{selectedMeal.locationName}</dd>
               </div>
               <div>
                 <dt>Class and date</dt>
                 <dd>{selectedMeal.className} - {formatDate(selectedMeal.date)}</dd>
+              </div>
+              <div>
+                <dt>Meal time</dt>
+                <dd>{selectedMeal.time || 'TBD'}</dd>
               </div>
             </dl>
           )}
@@ -988,8 +988,8 @@ function ReimbursementApp() {
           </div>
           <dl>
             <div>
-              <dt>Name</dt>
-              <dd>{form.fullName || 'Not entered yet'}</dd>
+              <dt>Provided meal</dt>
+              <dd>{selectedMeal ? selectedMeal.label : 'Not selected yet'}</dd>
             </div>
             <div>
               <dt>Class</dt>
@@ -1062,18 +1062,18 @@ function providedMealOptions(state) {
           id: `${signup.id}:${detail.date}`,
           signupId: signup.id,
           date: detail.date,
-          fullName: signup.fullName || '',
-          providerAddress: signup.addressLine || '',
           className: detail.className || signup.locationName || '',
+          locationName: signup.locationName || '',
+          time: detail.time || '',
           label: [
             formatDate(detail.date),
-            detail.className || signup.locationName,
-            signup.fullName,
-            signup.meal,
+            signup.locationName,
+            detail.className,
+            detail.time,
           ].filter(Boolean).join(' - '),
         })),
     )
-    .sort((a, b) => a.date.localeCompare(b.date) || a.fullName.localeCompare(b.fullName))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.locationName.localeCompare(b.locationName))
 }
 
 function dateIsChosen(locationId, date, signups = []) {
