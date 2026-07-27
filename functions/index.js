@@ -486,6 +486,7 @@ function buildMealEmails(signup, templates) {
     const values = mealTemplateValues(signup, dateDetail);
     messages.push({
       id: `${signup.id}-${dateDetail.date}-email-confirmation`,
+      mealDate: dateDetail.date,
       signupId: signup.id,
       to: signup.email,
       subject: fillTemplate(templates.confirmation.subject, values),
@@ -497,6 +498,7 @@ function buildMealEmails(signup, templates) {
     });
     messages.push({
       id: `${signup.id}-${dateDetail.date}-email-one-week`,
+      mealDate: dateDetail.date,
       signupId: signup.id,
       to: signup.email,
       subject: fillTemplate(templates["one-week-reminder"].subject, values),
@@ -506,7 +508,9 @@ function buildMealEmails(signup, templates) {
       status: "queued",
     });
   }
-  return messages;
+  return messages.filter((message) => (
+    message.type === "confirmation" || Date.parse(message.sendOn) > Date.now()
+  ));
 }
 
 function buildMealTextMessages(signup, templates) {
@@ -516,6 +520,7 @@ function buildMealTextMessages(signup, templates) {
     const values = mealTemplateValues(signup, dateDetail);
     messages.push({
       id: `${signup.id}-${dateDetail.date}-sms-one-week`,
+      mealDate: dateDetail.date,
       signupId: signup.id,
       to: signup.phone,
       body: fillTemplate(templates["one-week-reminder"], values),
@@ -525,6 +530,7 @@ function buildMealTextMessages(signup, templates) {
     });
     messages.push({
       id: `${signup.id}-${dateDetail.date}-sms-day-before`,
+      mealDate: dateDetail.date,
       signupId: signup.id,
       to: signup.phone,
       body: fillTemplate(templates["day-before-reminder"], values),
@@ -533,7 +539,7 @@ function buildMealTextMessages(signup, templates) {
       status: "queued",
     });
   }
-  return messages;
+  return messages.filter((message) => Date.parse(message.sendOn) > Date.now());
 }
 
 function mealTemplateValues(signup, dateDetail) {
@@ -1880,42 +1886,111 @@ async function sendDueMessagesForAllApps() {
 async function sendDueMessages(appId = "current") {
   const state = await readState(appId);
   const now = Date.now();
+  const messageResults = [];
   let emailsSent = 0;
   let textsSent = 0;
   let failed = 0;
 
   for (const message of state.emails || []) {
     if (message.sentAt || Date.parse(message.sendOn) > now) continue;
+    if (!(await messageIsStillQueued(appId, "emails", message))) continue;
     try {
       const providerId = await sendPostmarkEmail(message);
-      message.sentAt = new Date().toISOString();
-      message.status = "sent";
-      message.providerId = providerId;
+      messageResults.push({
+        collection: "emails",
+        id: message.id,
+        updates: {
+          sentAt: new Date().toISOString(),
+          status: "sent",
+          providerId,
+          errorMessage: "",
+        },
+      });
       emailsSent += 1;
     } catch (error) {
-      message.status = "failed";
-      message.errorMessage = error.message;
+      messageResults.push({
+        collection: "emails",
+        id: message.id,
+        updates: {
+          status: "failed",
+          errorMessage: error.message,
+        },
+      });
       failed += 1;
     }
   }
 
   for (const message of state.textMessages || []) {
     if (message.sentAt || Date.parse(message.sendOn) > now) continue;
+    if (!(await messageIsStillQueued(appId, "textMessages", message))) continue;
     try {
       const providerId = await sendTwilioText(message);
-      message.sentAt = new Date().toISOString();
-      message.status = "sent";
-      message.providerId = providerId;
+      messageResults.push({
+        collection: "textMessages",
+        id: message.id,
+        updates: {
+          sentAt: new Date().toISOString(),
+          status: "sent",
+          providerId,
+          errorMessage: "",
+        },
+      });
       textsSent += 1;
     } catch (error) {
-      message.status = "failed";
-      message.errorMessage = error.message;
+      messageResults.push({
+        collection: "textMessages",
+        id: message.id,
+        updates: {
+          status: "failed",
+          errorMessage: error.message,
+        },
+      });
       failed += 1;
     }
   }
 
-  await writeState(state, appId);
+  if (messageResults.length) {
+    const latestState = await readState(appId);
+    applyQueuedMessageResults(latestState, messageResults);
+    await writeState(latestState, appId);
+  }
   return {app: appId, emailsSent, textsSent, failed};
+}
+
+async function messageIsStillQueued(appId, collectionName, message) {
+  const latestState = await readState(appId);
+  const latestMessage = (latestState[collectionName] || []).find((item) => item.id === message.id);
+  if (!latestMessage || latestMessage.sentAt) return false;
+  if (appId !== "mealSignup" || !latestMessage.signupId) return true;
+  const mealDate = queuedMealDate(latestMessage);
+  if (!mealDate) return true;
+  return (latestState.signups || []).some((signup) =>
+    signup.id === latestMessage.signupId && (signup.dates || []).includes(mealDate),
+  );
+}
+
+function applyQueuedMessageResults(state, messageResults) {
+  const updatesByCollection = messageResults.reduce((groups, result) => {
+    groups[result.collection] = groups[result.collection] || new Map();
+    groups[result.collection].set(result.id, result.updates);
+    return groups;
+  }, {});
+  for (const [collectionName, updatesById] of Object.entries(updatesByCollection)) {
+    state[collectionName] = (state[collectionName] || []).map((message) => {
+      const updates = updatesById.get(message.id);
+      if (!updates || message.sentAt) return message;
+      return {
+        ...message,
+        ...updates,
+      };
+    });
+  }
+}
+
+function queuedMealDate(message) {
+  if (message.mealDate) return clean(message.mealDate);
+  const match = clean(message.id).match(/\d{4}-\d{2}-\d{2}/);
+  return match ? match[0] : "";
 }
 
 async function sendPostmarkEmail(message) {
