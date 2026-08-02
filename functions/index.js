@@ -1136,8 +1136,14 @@ async function removeMealPreparer(request, session) {
   state.textMessages = (state.textMessages || []).filter((message) =>
     !(message.signupId === signup.id && message.id && message.id.includes(mealDate) && !message.sentAt),
   );
+  const removedReminderCount = removeInactiveMealReminderMessages(state);
 
-  logStateChange(state, session.username, "Remove meal preparer", `${session.username} reopened ${mealDate} by removing ${providerName}.`);
+  logStateChange(
+    state,
+    session.username,
+    "Remove meal preparer",
+    `${session.username} reopened ${mealDate} by removing ${providerName}${removedReminderCount ? ` and cleared ${removedReminderCount} stale reminder(s)` : ""}.`,
+  );
   await writeState(state, session.appId);
   return adminState(session.appId, session);
 }
@@ -1260,11 +1266,12 @@ async function updateMealLocations(request, session) {
     return {ok: false, error: error.message};
   }
   state.locations = nextLocations;
+  const removedReminderCount = removeInactiveMealReminderMessages(state);
   logStateChange(
     state,
     session.username,
     "Update meal schedule",
-    `${session.username} updated meal locations and dates${allowChosenDateOverride ? " with a chosen-date override" : ""}.`,
+    `${session.username} updated meal locations and dates${allowChosenDateOverride ? " with a chosen-date override" : ""}${removedReminderCount ? ` and cleared ${removedReminderCount} stale reminder(s)` : ""}.`,
   );
   await writeState(state, session.appId);
   return {ok: true, locations: state.locations, adminLog: state.adminLog};
@@ -1318,6 +1325,28 @@ function validateMealLocationChanges(currentLocations, nextLocations, signups, a
       }
     }
   }
+}
+
+function removeInactiveMealReminderMessages(state) {
+  const beforeCount = (state.emails || []).length + (state.textMessages || []).length;
+  state.emails = (state.emails || []).filter((message) => (
+    message.sentAt || activeMealReminderMessage(state, "emails", message)
+  ));
+  state.textMessages = (state.textMessages || []).filter((message) => (
+    message.sentAt || activeMealReminderMessage(state, "textMessages", message)
+  ));
+  return beforeCount - ((state.emails || []).length + (state.textMessages || []).length);
+}
+
+function activeMealReminderMessage(state, collectionName, message) {
+  if (!message.signupId) return true;
+  if (collectionName === "emails" && message.type === "day-before-reminder") return false;
+  const mealDate = queuedMealDate(message);
+  if (!mealDate) return true;
+  const signup = (state.signups || []).find((item) =>
+    item.id === message.signupId && (item.dates || []).includes(mealDate),
+  );
+  return Boolean(signup && mealDateIsStillScheduled(state, signup.locationId, mealDate));
 }
 
 function mealDateIsChosen(locationId, date, signups) {
@@ -1962,11 +1991,14 @@ async function messageIsStillQueued(appId, collectionName, message) {
   const latestMessage = (latestState[collectionName] || []).find((item) => item.id === message.id);
   if (!latestMessage || latestMessage.sentAt) return false;
   if (appId !== "mealSignup" || !latestMessage.signupId) return true;
+  if (collectionName === "emails" && latestMessage.type === "day-before-reminder") return false;
   const mealDate = queuedMealDate(latestMessage);
   if (!mealDate) return true;
-  return (latestState.signups || []).some((signup) =>
-    signup.id === latestMessage.signupId && (signup.dates || []).includes(mealDate),
+  const signup = (latestState.signups || []).find((item) =>
+    item.id === latestMessage.signupId && (item.dates || []).includes(mealDate),
   );
+  if (!signup) return false;
+  return mealDateIsStillScheduled(latestState, signup.locationId, mealDate);
 }
 
 function applyQueuedMessageResults(state, messageResults) {
@@ -1991,6 +2023,11 @@ function queuedMealDate(message) {
   if (message.mealDate) return clean(message.mealDate);
   const match = clean(message.id).match(/\d{4}-\d{2}-\d{2}/);
   return match ? match[0] : "";
+}
+
+function mealDateIsStillScheduled(state, locationId, mealDate) {
+  const location = (state.locations || []).find((item) => item.id === locationId);
+  return Boolean(location && (location.days || []).some((day) => day.date === mealDate));
 }
 
 async function sendPostmarkEmail(message) {
