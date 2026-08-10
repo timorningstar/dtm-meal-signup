@@ -714,7 +714,20 @@ dd {
   align-items: end;
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(0, 150px) minmax(0, 130px) minmax(0, 130px) minmax(0, 1fr) minmax(0, 130px) 70px auto;
+  grid-template-columns: minmax(0, 140px) minmax(0, 115px) minmax(0, 120px) minmax(0, 1fr) minmax(0, 120px) 66px minmax(0, 160px) auto;
+  padding: 10px;
+}
+
+.admin-date-row.filled-online {
+  background: #edf7f1;
+  border: 1px solid #b7d9bc;
+  border-radius: 8px;
+}
+
+.admin-date-row.filled-offline {
+  background: #fff7ed;
+  border: 1px solid #f0c48d;
+  border-radius: 8px;
 }
 
 .admin-filled-field input {
@@ -768,7 +781,22 @@ dd {
   white-space: nowrap;
 }
 
+.schedule-row-online td {
+  background: #f3fbf6;
+}
+
+.schedule-row-offline td {
+  background: #fffaf2;
+}
+
+.offline-filled-name {
+  color: #8a4700;
+  font-weight: 700;
+}
+
 .preparer-detail-button {
+  color: #176f40;
+  font-weight: 700;
   line-height: 1.35;
   max-width: 220px;
   text-align: left;

@@ -1408,6 +1408,7 @@ function sanitizeMealLocations(locations) {
           day: weekdayForDate(day.date),
           className: clean(day.className),
           filled: day.filled === true,
+          filledBy: clean(day.filledBy),
           expectedMealCount: Math.max(
             1,
             Number.parseInt(day.expectedMealCount || day.servingSize || location.servingSize, 10) || 1,

@@ -1348,6 +1348,27 @@ function AdminApp() {
     )
   }
 
+  const updateFilledDate = (locationId, index, checked) => {
+    const location = locations.find((item) => item.id === locationId)
+    const day = location?.days?.[index]
+    if (day && dateIsChosen(locationId, day.date, adminData?.signups || [])) {
+      setError('This date was filled by an online signup. Remove the meal preparer from Schedule if it needs to be reopened.')
+      return
+    }
+    if (!checked) {
+      updateDate(locationId, index, { filled: false, filledBy: '' })
+      return
+    }
+    const filledBy = window.prompt('Who filled this meal date?')
+    if (filledBy === null) return
+    const cleanFilledBy = filledBy.trim()
+    if (!cleanFilledBy) {
+      setError('Enter a name for the filled meal date.')
+      return
+    }
+    updateDate(locationId, index, { filled: true, filledBy: cleanFilledBy })
+  }
+
   const addDate = (locationId) => {
     setLocations((current) =>
       current.map((location) =>
@@ -1363,6 +1384,7 @@ function AdminApp() {
                   className: '',
                   expectedMealCount: '',
                   filled: false,
+                  filledBy: '',
                 },
               ],
             }
@@ -1979,8 +2001,13 @@ function AdminApp() {
                     </button>
                   </div>
                   <div className="admin-date-list">
-                    {location.days.map((day, index) => (
-                      <div className="admin-date-row" key={`${location.id}-${index}`}>
+                    {location.days.map((day, index) => {
+                      const filledOnline = dateIsChosen(location.id, day.date, adminData?.signups || [])
+                      return (
+                      <div
+                        className={`admin-date-row ${filledOnline ? 'filled-online' : day.filled ? 'filled-offline' : ''}`}
+                        key={`${location.id}-${index}`}
+                      >
                         <label>
                           Date
                           <input
@@ -2032,11 +2059,23 @@ function AdminApp() {
                         <label className="admin-filled-field">
                           Filled
                           <input
-                            checked={day.filled === true}
+                            checked={filledOnline || day.filled === true}
+                            disabled={filledOnline}
                             onChange={(event) =>
-                              updateDate(location.id, index, { filled: event.target.checked })
+                              updateFilledDate(location.id, index, event.target.checked)
                             }
                             type="checkbox"
+                          />
+                        </label>
+                        <label>
+                          Filled by
+                          <input
+                            disabled={filledOnline || day.filled !== true}
+                            onChange={(event) =>
+                              updateDate(location.id, index, { filledBy: event.target.value })
+                            }
+                            placeholder={filledOnline ? 'Online signup' : 'Name'}
+                            value={filledOnline ? 'Filled online' : day.filledBy || ''}
                           />
                         </label>
                         <button
@@ -2047,7 +2086,7 @@ function AdminApp() {
                           Remove
                         </button>
                       </div>
-                    ))}
+                    )})}
                   </div>
                 </div>
               ))}
@@ -2129,7 +2168,7 @@ function AdminApp() {
               </thead>
               <tbody>
                 {filteredRows.map((row) => (
-                  <tr key={`${row.locationId}-${row.date}-${row.time}`}>
+                  <tr className={`schedule-row-${row.filledStatus}`} key={`${row.locationId}-${row.date}-${row.time}`}>
                     <td>{formatDate(row.date)}</td>
                     <td>{row.day}</td>
                     <td>{row.locationName}</td>
@@ -2146,7 +2185,9 @@ function AdminApp() {
                           {row.preparer}
                         </button>
                       ) : (
-                        row.preparer || 'Open'
+                        row.preparer ? (
+                          <span className="offline-filled-name">{row.preparer}</span>
+                        ) : 'Open'
                       )}
                     </td>
                     <td>{row.address}</td>
@@ -2507,9 +2548,11 @@ function scheduleRows(locations, signups = []) {
           signup: signup || null,
           preparerName: signup?.fullName || '',
           expectedMealCount: mealCountForDay(day, location),
+          filledBy: day.filledBy || '',
+          filledStatus: signup ? 'online' : day.filled ? 'offline' : 'open',
           preparer: signup
             ? [signup.fullName, signup.meal].filter(Boolean).join(' - ')
-            : day.filled ? 'Filled offline' : '',
+            : day.filled ? day.filledBy || 'Filled offline' : '',
         }
       }),
     )
@@ -2528,6 +2571,8 @@ function buildRecurringMealDates(form) {
       day: weekdayForDate(date),
       className: form.className || '',
       expectedMealCount: form.expectedMealCount || '',
+      filled: false,
+      filledBy: '',
     })
     if (form.recurrence === 'monthly') {
       cursor.setMonth(cursor.getMonth() + 1)
