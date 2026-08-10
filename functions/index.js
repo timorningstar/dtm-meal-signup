@@ -14,7 +14,7 @@ const db = admin.firestore();
 const storage = admin.storage();
 const storageBucketName = process.env.STORAGE_BUCKET || "dtmcleaners.appspot.com";
 const SUPPORTED_APP_IDS = new Set(["mealSignup"]);
-const MEAL_CONFIRMATION_BCC = "volunteer@downtownmin.org";
+const MEAL_OFFICE_NOTIFICATION_RECIPIENT = "volunteer@downtownmin.org";
 const REIMBURSEMENT_NOTIFICATION_RECIPIENTS = [
   "volunteer@downtownmin.org",
   "accounting@downtownmin.org",
@@ -491,9 +491,19 @@ function buildMealEmails(signup, templates) {
       to: signup.email,
       subject: fillTemplate(templates.confirmation.subject, values),
       body: fillTemplate(templates.confirmation.body, values),
-      bcc: MEAL_CONFIRMATION_BCC,
       sendOn: new Date().toISOString(),
       type: "confirmation",
+      status: "queued",
+    });
+    messages.push({
+      id: `${signup.id}-${dateDetail.date}-email-office-notification`,
+      mealDate: dateDetail.date,
+      signupId: signup.id,
+      to: MEAL_OFFICE_NOTIFICATION_RECIPIENT,
+      subject: `Meal signup: ${signup.fullName} for ${dateDetail.className || signup.locationName || dateDetail.date}`,
+      body: buildMealOfficeNotification(signup, dateDetail),
+      sendOn: new Date().toISOString(),
+      type: "office-notification",
       status: "queued",
     });
     messages.push({
@@ -509,8 +519,35 @@ function buildMealEmails(signup, templates) {
     });
   }
   return messages.filter((message) => (
-    message.type === "confirmation" || Date.parse(message.sendOn) > Date.now()
+    ["confirmation", "office-notification"].includes(message.type) || Date.parse(message.sendOn) > Date.now()
   ));
+}
+
+function buildMealOfficeNotification(signup, dateDetail) {
+  const lines = [
+    "A meal provider signed up through DTM Class Meals.",
+    "",
+    "Meal details",
+    `Date: ${formatMealDate(dateDetail.date)}`,
+    `Location: ${signup.locationName || ""}`,
+    `Drop-off address: ${signup.address || ""}`,
+    `Meal time: ${dateDetail.time || ""}`,
+    `Class: ${dateDetail.className || ""}`,
+    `Expected meal #: ${dateDetail.expectedMealCount || ""}`,
+    `Meal: ${signup.meal || ""}`,
+    "",
+    "Meal provider",
+    `Name: ${signup.fullName || ""}`,
+    `Email: ${signup.email || ""}`,
+    `Phone: ${signup.phone || ""}`,
+    `Address: ${signup.addressLine || ""}`,
+    `Church/group: ${signup.churchGroup || ""}`,
+    `SMS reminders: ${signup.textReminders ? "Yes" : "No"}`,
+    "",
+    "Notes",
+    signup.notes || "",
+  ];
+  return lines.join("\n");
 }
 
 function buildMealTextMessages(signup, templates) {
@@ -2034,7 +2071,7 @@ async function sendPostmarkEmail(message) {
   const token = process.env.POSTMARK_SERVER_TOKEN;
   const fromEmail = process.env.POSTMARK_FROM_EMAIL;
   if (!token || !fromEmail) throw new Error("Postmark environment variables are not configured.");
-  const bcc = message.bcc || (message.type === "confirmation" ? MEAL_CONFIRMATION_BCC : "");
+  const bcc = message.bcc || "";
 
   const response = await fetch("https://api.postmarkapp.com/email", {
     method: "POST",

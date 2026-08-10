@@ -768,6 +768,65 @@ dd {
   white-space: nowrap;
 }
 
+.preparer-detail-button {
+  line-height: 1.35;
+  max-width: 220px;
+  text-align: left;
+  white-space: normal;
+}
+
+.modal-backdrop {
+  align-items: center;
+  background: rgb(32 40 51 / 0.44);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 24px;
+  position: fixed;
+  z-index: 20;
+}
+
+.modal-panel {
+  background: #ffffff;
+  border: 1px solid #d7dee6;
+  border-radius: 8px;
+  box-shadow: 0 18px 50px rgb(32 40 51 / 0.22);
+  max-height: min(760px, calc(100vh - 48px));
+  max-width: 680px;
+  overflow: auto;
+  padding: 24px;
+  width: min(100%, 680px);
+}
+
+.detail-list {
+  display: grid;
+  gap: 14px 18px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 18px 0 0;
+}
+
+.detail-list div {
+  border-top: 1px solid #e2e8f0;
+  padding-top: 10px;
+}
+
+.detail-list dt {
+  color: #697583;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.detail-list dd {
+  color: #102238;
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.detail-list-wide {
+  grid-column: 1 / -1;
+}
+
 .regular-admins {
   border-top: 1px solid #d7dee6;
   margin-top: 24px;

@@ -1208,6 +1208,7 @@ function AdminApp() {
   const [allowChosenDateOverride, setAllowChosenDateOverride] = useState(false)
   const [bulkDateForms, setBulkDateForms] = useState({})
   const [reminderForms, setReminderForms] = useState({ emailTemplates: {}, smsTemplates: {} })
+  const [selectedPreparer, setSelectedPreparer] = useState(null)
   const [regularForm, setRegularForm] = useState({
     username: '',
     password: '',
@@ -2135,7 +2136,19 @@ function AdminApp() {
                     <td>{row.time}</td>
                     <td>{row.className}</td>
                     <td>{row.expectedMealCount || ''}</td>
-                    <td>{row.preparer || 'Open'}</td>
+                    <td>
+                      {row.signup ? (
+                        <button
+                          className="text-action preparer-detail-button"
+                          onClick={() => setSelectedPreparer(row)}
+                          type="button"
+                        >
+                          {row.preparer}
+                        </button>
+                      ) : (
+                        row.preparer || 'Open'
+                      )}
+                    </td>
                     <td>{row.address}</td>
                     {canManageSchedule && (
                       <td>
@@ -2156,6 +2169,84 @@ function AdminApp() {
                 ))}
               </tbody>
             </table>
+            {selectedPreparer && (
+              <div className="modal-backdrop no-print" role="presentation">
+                <section
+                  aria-labelledby="preparer-details-title"
+                  aria-modal="true"
+                  className="modal-panel"
+                  role="dialog"
+                >
+                  <div className="section-heading admin-heading-row">
+                    <div>
+                      <p className="eyebrow">Meal Preparer</p>
+                      <h2 id="preparer-details-title">{selectedPreparer.signup.fullName}</h2>
+                    </div>
+                    <button
+                      className="secondary-action"
+                      onClick={() => setSelectedPreparer(null)}
+                      type="button"
+                    >
+                      Close
+                    </button>
+                  </div>
+                  <dl className="detail-list">
+                    <div>
+                      <dt>Date</dt>
+                      <dd>{formatDate(selectedPreparer.date)}</dd>
+                    </div>
+                    <div>
+                      <dt>Location</dt>
+                      <dd>{selectedPreparer.locationName}</dd>
+                    </div>
+                    <div>
+                      <dt>Class</dt>
+                      <dd>{selectedPreparer.className || ''}</dd>
+                    </div>
+                    <div>
+                      <dt>Meal time</dt>
+                      <dd>{selectedPreparer.time || ''}</dd>
+                    </div>
+                    <div>
+                      <dt>Expected meal #</dt>
+                      <dd>{selectedPreparer.expectedMealCount || ''}</dd>
+                    </div>
+                    <div>
+                      <dt>Meal</dt>
+                      <dd>{selectedPreparer.signup.meal || ''}</dd>
+                    </div>
+                    <div>
+                      <dt>Name</dt>
+                      <dd>{selectedPreparer.signup.fullName || ''}</dd>
+                    </div>
+                    <div>
+                      <dt>Phone</dt>
+                      <dd>{selectedPreparer.signup.phone || ''}</dd>
+                    </div>
+                    <div>
+                      <dt>Email</dt>
+                      <dd>{selectedPreparer.signup.email || ''}</dd>
+                    </div>
+                    <div>
+                      <dt>Address</dt>
+                      <dd>{selectedPreparer.signup.addressLine || ''}</dd>
+                    </div>
+                    <div>
+                      <dt>Church/group</dt>
+                      <dd>{selectedPreparer.signup.churchGroup || ''}</dd>
+                    </div>
+                    <div>
+                      <dt>SMS reminders</dt>
+                      <dd>{selectedPreparer.signup.textReminders ? 'Yes' : 'No'}</dd>
+                    </div>
+                    <div className="detail-list-wide">
+                      <dt>Notes</dt>
+                      <dd>{selectedPreparer.signup.notes || ''}</dd>
+                    </div>
+                  </dl>
+                </section>
+              </div>
+            )}
           </section>
         )}
 
@@ -2413,6 +2504,7 @@ function scheduleRows(locations, signups = []) {
           locationName: location.name,
           address: location.address,
           signupId: signup?.id || '',
+          signup: signup || null,
           preparerName: signup?.fullName || '',
           expectedMealCount: mealCountForDay(day, location),
           preparer: signup
