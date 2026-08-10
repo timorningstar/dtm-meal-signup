@@ -1204,6 +1204,10 @@ function currentDateValue() {
   return new Date().toISOString().slice(0, 10)
 }
 
+function cleanMealClassName(value) {
+  return String(value || '').trim().replace(/\s*,\s*&\s*/g, ' & ')
+}
+
 function AdminApp() {
   const [token, setToken] = useState('')
   const [login, setLogin] = useState({ username: '', password: '' })
@@ -1774,14 +1778,19 @@ function AdminApp() {
   const canViewAdminAccounts = isFull || isRecovery
   const allDates = scheduleRows(locations, adminData.signups || [])
   const classFilterOptions = [
-    ...new Set(allDates.map((row) => row.className).filter(Boolean)),
+    ...new Map(
+      allDates
+        .map((row) => cleanMealClassName(row.className))
+        .filter(Boolean)
+        .map((className) => [className.toLowerCase(), className]),
+    ).values(),
   ].sort((a, b) => a.localeCompare(b))
   const filteredRows = allDates.filter((row) => {
     const locationMatches =
       filters.locationId === 'all' || row.locationId === filters.locationId
     const monthMatches = !filters.month || row.date.startsWith(filters.month)
     const currentDateMatches = filters.month !== currentMonthValue() || row.date >= currentDateValue()
-    const classMatches = filters.className === 'all' || row.className === filters.className
+    const classMatches = filters.className === 'all' || cleanMealClassName(row.className) === filters.className
     return locationMatches && monthMatches && currentDateMatches && classMatches
   })
   const setupLocations = locations
@@ -1792,7 +1801,7 @@ function AdminApp() {
         .map((day, index) => ({ ...day, originalIndex: index }))
         .filter((day) => !filters.month || day.date.startsWith(filters.month))
         .filter((day) => filters.month !== currentMonthValue() || !day.date || day.date >= currentDateValue())
-        .filter((day) => filters.className === 'all' || day.className === filters.className),
+        .filter((day) => filters.className === 'all' || cleanMealClassName(day.className) === filters.className),
     }))
   const reimbursementRows = (adminData.reimbursements || []).filter((request) =>
     reimbursementFilter === 'completed'
@@ -2612,6 +2621,7 @@ function scheduleRows(locations, signups = []) {
           signupId: signup?.id || '',
           signup: signup || null,
           preparerName: signup?.fullName || '',
+          className: cleanMealClassName(day.className),
           expectedMealCount: mealCountForDay(day, location),
           filledBy: day.filledBy || '',
           filledStatus: signup ? 'online' : day.filled ? 'offline' : 'open',

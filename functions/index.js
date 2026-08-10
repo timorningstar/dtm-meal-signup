@@ -1406,7 +1406,7 @@ function sanitizeMealLocations(locations) {
           date: clean(day.date),
           time: clean(day.time) || "5:00 PM",
           day: weekdayForDate(day.date),
-          className: clean(day.className),
+          className: cleanMealClassName(day.className),
           filled: day.filled === true,
           filledBy: clean(day.filledBy),
           expectedMealCount: Math.max(
@@ -1418,6 +1418,10 @@ function sanitizeMealLocations(locations) {
         .sort((a, b) => a.date.localeCompare(b.date)),
     };
   });
+}
+
+function cleanMealClassName(value) {
+  return clean(value).replace(/\s*,\s*&\s*/g, " & ");
 }
 
 async function updateMainAdminAccount(request, session) {
