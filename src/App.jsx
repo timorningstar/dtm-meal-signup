@@ -1196,17 +1196,33 @@ function formatCurrency(value) {
   }).format(value || 0)
 }
 
+function currentMonthValue() {
+  return currentDateValue().slice(0, 7)
+}
+
+function currentDateValue() {
+  return new Date().toISOString().slice(0, 10)
+}
+
 function AdminApp() {
   const [token, setToken] = useState('')
   const [login, setLogin] = useState({ username: '', password: '' })
   const [adminData, setAdminData] = useState(null)
   const [activeAdminView, setActiveAdminView] = useState('schedule')
   const [locations, setLocations] = useState([])
-  const [filters, setFilters] = useState({ locationId: 'all', month: '', className: 'all' })
+  const [filters, setFilters] = useState({ locationId: 'all', month: currentMonthValue(), className: 'all' })
+  const [mealDateForm, setMealDateForm] = useState({
+    locationId: '',
+    startDate: '',
+    recurrence: 'weekly',
+    count: '1',
+    time: '5:00 PM',
+    className: '',
+    expectedMealCount: '',
+  })
   const [accountForm, setAccountForm] = useState({ username: '', password: '' })
   const [passwordForm, setPasswordForm] = useState({ password: '' })
   const [allowChosenDateOverride, setAllowChosenDateOverride] = useState(false)
-  const [bulkDateForms, setBulkDateForms] = useState({})
   const [reminderForms, setReminderForms] = useState({ emailTemplates: {}, smsTemplates: {} })
   const [selectedPreparer, setSelectedPreparer] = useState(null)
   const [regularForm, setRegularForm] = useState({
@@ -1369,63 +1385,18 @@ function AdminApp() {
     updateDate(locationId, index, { filled: true, filledBy: cleanFilledBy })
   }
 
-  const addDate = (locationId) => {
-    setLocations((current) =>
-      current.map((location) =>
-        location.id === locationId
-          ? {
-              ...location,
-              days: [
-                ...location.days,
-                {
-                  date: '',
-                  time: '5:00 PM',
-                  day: '',
-                  className: '',
-                  expectedMealCount: '',
-                  filled: false,
-                  filledBy: '',
-                },
-              ],
-            }
-          : location,
-      ),
-    )
+  const updateMealDateForm = (updates) => {
+    setMealDateForm((current) => ({ ...current, ...updates }))
   }
 
-  const updateBulkDateForm = (locationId, updates) => {
-    setBulkDateForms((current) => ({
-      ...current,
-      [locationId]: {
-        startDate: '',
-        recurrence: 'weekly',
-        count: '4',
-        time: '5:00 PM',
-        className: '',
-        expectedMealCount: '',
-        ...(current[locationId] || {}),
-        ...updates,
-      },
-    }))
-  }
-
-  const addRecurringDates = (locationId) => {
-    const form = {
-      startDate: '',
-      recurrence: 'weekly',
-      count: '4',
-      time: '5:00 PM',
-      className: '',
-      expectedMealCount: '',
-      ...(bulkDateForms[locationId] || {}),
-    }
-    const count = Number.parseInt(form.count, 10)
-    if (!form.startDate || !count || count < 1) {
-      setError('Enter a start date and number of dates to add.')
+  const addMealDates = () => {
+    const count = Number.parseInt(mealDateForm.count, 10)
+    if (!mealDateForm.locationId || !mealDateForm.startDate || !count || count < 1) {
+      setError('Choose a location, start date, and number of dates to add.')
       return
     }
-    const dates = buildRecurringMealDates(form)
-    const location = locations.find((item) => item.id === locationId)
+    const dates = buildRecurringMealDates(mealDateForm)
+    const location = locations.find((item) => item.id === mealDateForm.locationId)
     const duplicateDates = dates.filter((date) =>
       location?.days?.some((day) => day.date === date.date),
     )
@@ -1437,7 +1408,7 @@ function AdminApp() {
     }
     setLocations((current) =>
       current.map((location) =>
-        location.id === locationId
+        location.id === mealDateForm.locationId
           ? {
               ...location,
               days: [...location.days, ...dates].sort((a, b) => a.date.localeCompare(b.date)),
@@ -1445,7 +1416,14 @@ function AdminApp() {
           : location,
       ),
     )
+    setFilters((current) => ({
+      ...current,
+      locationId: mealDateForm.locationId,
+      month: mealDateForm.startDate.slice(0, 7),
+    }))
+    setMealDateForm((current) => ({ ...current, startDate: '', count: '1' }))
     setError('')
+    setMessage('Meal date added. Review it in Setup, then save locations and dates.')
   }
 
   const removeDate = (locationId, index) => {
@@ -1802,9 +1780,20 @@ function AdminApp() {
     const locationMatches =
       filters.locationId === 'all' || row.locationId === filters.locationId
     const monthMatches = !filters.month || row.date.startsWith(filters.month)
+    const currentDateMatches = filters.month !== currentMonthValue() || row.date >= currentDateValue()
     const classMatches = filters.className === 'all' || row.className === filters.className
-    return locationMatches && monthMatches && classMatches
+    return locationMatches && monthMatches && currentDateMatches && classMatches
   })
+  const setupLocations = locations
+    .filter((location) => filters.locationId === 'all' || location.id === filters.locationId)
+    .map((location) => ({
+      ...location,
+      days: (location.days || [])
+        .map((day, index) => ({ ...day, originalIndex: index }))
+        .filter((day) => !filters.month || day.date.startsWith(filters.month))
+        .filter((day) => filters.month !== currentMonthValue() || !day.date || day.date >= currentDateValue())
+        .filter((day) => filters.className === 'all' || day.className === filters.className),
+    }))
   const reimbursementRows = (adminData.reimbursements || []).filter((request) =>
     reimbursementFilter === 'completed'
       ? request.status === 'completed'
@@ -1848,6 +1837,15 @@ function AdminApp() {
                 Setup
               </button>
             )}
+            {canViewSetup && (
+              <button
+                className={activeAdminView === 'addMeals' ? 'active' : ''}
+                onClick={() => setActiveAdminView('addMeals')}
+                type="button"
+              >
+                Add Meal Dates
+              </button>
+            )}
             {canManageSchedule && (
               <button
                 className={activeAdminView === 'reminders' ? 'active' : ''}
@@ -1880,6 +1878,88 @@ function AdminApp() {
       </header>
 
       <section className="admin-shell">
+        {canManageSchedule && activeAdminView === 'addMeals' && (
+          <section className="panel admin-editor">
+            <div className="section-heading">
+              <p className="eyebrow">Meal Dates</p>
+              <h2>Add Meal Dates</h2>
+            </div>
+            <div className="bulk-date-row standalone-add-dates">
+              <label>
+                Location
+                <select
+                  onChange={(event) => updateMealDateForm({ locationId: event.target.value })}
+                  value={mealDateForm.locationId}
+                >
+                  <option value="">Choose a location</option>
+                  {locations.map((location) => (
+                    <option key={location.id} value={location.id}>
+                      {location.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Start date
+                <input
+                  onChange={(event) => updateMealDateForm({ startDate: event.target.value })}
+                  type="date"
+                  value={mealDateForm.startDate}
+                />
+              </label>
+              <label>
+                Recurrence
+                <select
+                  onChange={(event) => updateMealDateForm({ recurrence: event.target.value })}
+                  value={mealDateForm.recurrence}
+                >
+                  <option value="weekly">Weekly</option>
+                  <option value="biweekly">Every 2 weeks</option>
+                  <option value="monthly">Monthly</option>
+                </select>
+              </label>
+              <label>
+                Number of dates
+                <input
+                  min="1"
+                  onChange={(event) => updateMealDateForm({ count: event.target.value })}
+                  type="number"
+                  value={mealDateForm.count}
+                />
+              </label>
+              <label>
+                Meal time
+                <input
+                  onChange={(event) => updateMealDateForm({ time: event.target.value })}
+                  value={mealDateForm.time}
+                />
+              </label>
+              <label>
+                Class name
+                <input
+                  onChange={(event) => updateMealDateForm({ className: event.target.value })}
+                  value={mealDateForm.className}
+                />
+              </label>
+              <label>
+                Expected meal #
+                <input
+                  min="1"
+                  onChange={(event) => updateMealDateForm({ expectedMealCount: event.target.value })}
+                  type="number"
+                  value={mealDateForm.expectedMealCount}
+                />
+              </label>
+              <button className="secondary-action" onClick={addMealDates} type="button">
+                Add meal dates
+              </button>
+            </div>
+            <button className="primary-action admin-save" onClick={saveLocations} type="button">
+              Save locations and dates
+            </button>
+          </section>
+        )}
+
         {canManageSchedule && activeAdminView === 'setup' && (
           <section className="panel admin-editor">
             <div className="section-heading admin-heading-row">
@@ -1891,9 +1971,53 @@ function AdminApp() {
                 Add location
               </button>
             </div>
+            <div className="schedule-filters">
+              <label>
+                Location
+                <select
+                  onChange={(event) =>
+                    setFilters((current) => ({ ...current, locationId: event.target.value }))
+                  }
+                  value={filters.locationId}
+                >
+                  <option value="all">All locations</option>
+                  {locations.map((location) => (
+                    <option key={location.id} value={location.id}>
+                      {location.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Month
+                <input
+                  onChange={(event) =>
+                    setFilters((current) => ({ ...current, month: event.target.value }))
+                  }
+                  type="month"
+                  value={filters.month}
+                />
+              </label>
+              <label>
+                Class
+                <select
+                  onChange={(event) =>
+                    setFilters((current) => ({ ...current, className: event.target.value }))
+                  }
+                  value={filters.className}
+                >
+                  <option value="all">All classes</option>
+                  {classFilterOptions.map((className) => (
+                    <option key={className} value={className}>
+                      {className}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
 
             <div className="admin-location-list">
-              {locations.map((location) => (
+              {setupLocations.map((location) => (
                 <div className="admin-location-card" key={location.id}>
                   <div className="admin-location-title">
                     <strong>{location.name}</strong>
@@ -1936,73 +2060,14 @@ function AdminApp() {
                   </label>
                   <div className="date-editor-header">
                     <strong>Meal dates</strong>
-                    <button
-                      className="secondary-action"
-                      onClick={() => addDate(location.id)}
-                      type="button"
-                    >
-                      Add single date
-                    </button>
-                  </div>
-                  <div className="bulk-date-row">
-                    <label>
-                      Start date
-                      <input
-                        onChange={(event) => updateBulkDateForm(location.id, { startDate: event.target.value })}
-                        type="date"
-                        value={bulkDateForms[location.id]?.startDate || ''}
-                      />
-                    </label>
-                    <label>
-                      Recurrence
-                      <select
-                        onChange={(event) => updateBulkDateForm(location.id, { recurrence: event.target.value })}
-                        value={bulkDateForms[location.id]?.recurrence || 'weekly'}
-                      >
-                        <option value="weekly">Weekly</option>
-                        <option value="biweekly">Every 2 weeks</option>
-                        <option value="monthly">Monthly</option>
-                      </select>
-                    </label>
-                    <label>
-                      Number of dates
-                      <input
-                        min="1"
-                        onChange={(event) => updateBulkDateForm(location.id, { count: event.target.value })}
-                        type="number"
-                        value={bulkDateForms[location.id]?.count || '4'}
-                      />
-                    </label>
-                    <label>
-                      Meal time
-                      <input
-                        onChange={(event) => updateBulkDateForm(location.id, { time: event.target.value })}
-                        value={bulkDateForms[location.id]?.time || '5:00 PM'}
-                      />
-                    </label>
-                    <label>
-                      Class name
-                      <input
-                        onChange={(event) => updateBulkDateForm(location.id, { className: event.target.value })}
-                        value={bulkDateForms[location.id]?.className || ''}
-                      />
-                    </label>
-                    <label>
-                      Expected meal #
-                      <input
-                        min="1"
-                        onChange={(event) => updateBulkDateForm(location.id, { expectedMealCount: event.target.value })}
-                        type="number"
-                        value={bulkDateForms[location.id]?.expectedMealCount || ''}
-                      />
-                    </label>
-                    <button className="secondary-action" onClick={() => addRecurringDates(location.id)} type="button">
-                      Add recurring dates
+                    <button className="secondary-action" onClick={() => setActiveAdminView('addMeals')} type="button">
+                      Add meal dates
                     </button>
                   </div>
                   <div className="admin-date-list">
                     {location.days.map((day, index) => {
                       const filledOnline = dateIsChosen(location.id, day.date, adminData?.signups || [])
+                      const dateIndex = day.originalIndex ?? index
                       return (
                       <div
                         className={`admin-date-row ${filledOnline ? 'filled-online' : day.filled ? 'filled-offline' : ''}`}
@@ -2012,7 +2077,7 @@ function AdminApp() {
                           Date
                           <input
                             onChange={(event) =>
-                              updateDate(location.id, index, {
+                              updateDate(location.id, dateIndex, {
                                 date: event.target.value,
                                 day: weekdayForDate(event.target.value),
                               })
@@ -2029,7 +2094,7 @@ function AdminApp() {
                           Meal time
                           <input
                             onChange={(event) =>
-                              updateDate(location.id, index, { time: event.target.value })
+                              updateDate(location.id, dateIndex, { time: event.target.value })
                             }
                             placeholder="5:00 PM"
                             value={day.time}
@@ -2039,7 +2104,7 @@ function AdminApp() {
                           Class name
                           <input
                             onChange={(event) =>
-                              updateDate(location.id, index, { className: event.target.value })
+                              updateDate(location.id, dateIndex, { className: event.target.value })
                             }
                             placeholder="DTM class name"
                             value={day.className || ''}
@@ -2050,7 +2115,7 @@ function AdminApp() {
                           <input
                             min="1"
                             onChange={(event) =>
-                              updateDate(location.id, index, { expectedMealCount: event.target.value })
+                              updateDate(location.id, dateIndex, { expectedMealCount: event.target.value })
                             }
                             type="number"
                             value={day.expectedMealCount || ''}
@@ -2062,7 +2127,7 @@ function AdminApp() {
                             checked={filledOnline || day.filled === true}
                             disabled={filledOnline}
                             onChange={(event) =>
-                              updateFilledDate(location.id, index, event.target.checked)
+                              updateFilledDate(location.id, dateIndex, event.target.checked)
                             }
                             type="checkbox"
                           />
@@ -2072,7 +2137,7 @@ function AdminApp() {
                           <input
                             disabled={filledOnline || day.filled !== true}
                             onChange={(event) =>
-                              updateDate(location.id, index, { filledBy: event.target.value })
+                              updateDate(location.id, dateIndex, { filledBy: event.target.value })
                             }
                             placeholder={filledOnline ? 'Online signup' : 'Name'}
                             value={filledOnline ? 'Filled online' : day.filledBy || ''}
@@ -2080,7 +2145,7 @@ function AdminApp() {
                         </label>
                         <button
                           className="text-action"
-                          onClick={() => removeDate(location.id, index)}
+                          onClick={() => removeDate(location.id, dateIndex)}
                           type="button"
                         >
                           Remove
