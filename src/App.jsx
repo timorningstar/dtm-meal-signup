@@ -1375,7 +1375,7 @@ function AdminApp() {
       updateDate(locationId, index, { filled: false, filledBy: '' })
       return
     }
-    const filledBy = window.prompt('Who filled this meal date?')
+    const filledBy = window.prompt('Who is providing this meal?')
     if (filledBy === null) return
     const cleanFilledBy = filledBy.trim()
     if (!cleanFilledBy) {
