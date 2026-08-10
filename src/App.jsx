@@ -2075,7 +2075,10 @@ function AdminApp() {
                   </div>
                   <div className="admin-date-list">
                     {location.days.map((day, index) => {
-                      const filledOnline = dateIsChosen(location.id, day.date, adminData?.signups || [])
+                      const onlineSignup = (adminData?.signups || []).find((signup) =>
+                        signup.locationId === location.id && (signup.dates || []).includes(day.date),
+                      )
+                      const filledOnline = Boolean(onlineSignup)
                       const dateIndex = day.originalIndex ?? index
                       return (
                       <div
@@ -2142,14 +2145,14 @@ function AdminApp() {
                           />
                         </label>
                         <label>
-                          Filled by
+                          Preparer
                           <input
                             disabled={filledOnline || day.filled !== true}
                             onChange={(event) =>
                               updateDate(location.id, dateIndex, { filledBy: event.target.value })
                             }
-                            placeholder={filledOnline ? 'Online signup' : 'Name'}
-                            value={filledOnline ? 'Filled online' : day.filledBy || ''}
+                            placeholder="Name"
+                            value={filledOnline ? onlineSignup.fullName || 'Online signup' : day.filledBy || ''}
                           />
                         </label>
                         <button
